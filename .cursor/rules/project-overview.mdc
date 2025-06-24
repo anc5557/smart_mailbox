@@ -1,0 +1,42 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# AI Smart Mailbox 프로젝트 개요
+
+## 프로젝트 목표
+사용자가 .eml 이메일 파일을 드래그 앤 드롭으로 업로드하면, LLM을 통해 자동 태깅 및 필요시 AI 답장을 생성해주는 스마트 메일 분석 데스크탑 애플리케이션
+
+## 기술 스택
+- **언어**: Python 3.11
+- **패키지 관리**: uv
+- **AI/LLM**: LangChain, LangGraph
+- **LLM 백엔드**: Ollama (로컬 실행)
+- **GUI 프레임워크**: PyQt6
+- **데이터베이스**: SQLite (내장)
+- **배포**: Windows .exe, macOS .dmg
+
+## 주요 파일 구조
+- [src/smart_mailbox/main.py](mdc:src/smart_mailbox/main.py) - 애플리케이션 진입점
+- [pyproject.toml](mdc:pyproject.toml) - 프로젝트 설정 및 의존성
+- [README.md](mdc:README.md) - 프로젝트 문서
+
+## 핵심 기능
+1. **파일 드래그 앤 드롭**: .eml 파일 업로드
+2. **자동 태깅**: "중요", "회신필요", "스팸", "광고" + 커스텀 태그
+3. **AI 답장 생성**: "회신필요" 태그가 달린 이메일에 대한 자동 답장
+4. **설정 관리**: Ollama 연결 설정, 커스텀 태그 관리
+5. **향후 확장**: 구글메일 연동
+
+## UI 구조
+- **사이드바**: 태그 목록 (중요, 회신필요, 스팸, 광고, 커스텀 태그)
+- **메인 영역**: 
+  - 홈: 드래그 앤 드롭 영역 + 진행 상황
+  - 태그별 보기: 해당 태그의 이메일 목록
+
+## 현재 개발 상태
+- [x] 프로젝트 초기 설정 완료
+- [x] 의존성 설치 완료 (Python 3.11, PyQt6, LangChain 등)
+- [x] 기본 패키지 구조 생성
+- [ ] GUI 구현 시작 예정
