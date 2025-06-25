@@ -1,9 +1,18 @@
 """
-AI Smart Mailbox 저장소 관리 모듈
+데이터 저장소 모듈
+
+이 모듈은 이메일 데이터와 설정을 저장하고 관리하는 기능을 제공합니다.
+SQLite 데이터베이스를 사용하여 데이터를 영구 저장합니다.
 """
 
-from .database import Database
-from .models import EmailModel, TagModel
-from .file_manager import FileManager
+from .database import DatabaseManager
+from .models import Base, Email, Tag, AppSettings, ProcessingLog
 
-__all__ = ['Database', 'EmailModel', 'TagModel', 'FileManager'] 
+__all__ = [
+    'DatabaseManager',
+    'Base',
+    'Email', 
+    'Tag',
+    'AppSettings',
+    'ProcessingLog'
+] 
