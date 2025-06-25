@@ -1,9 +1,17 @@
 """
-AI Smart Mailbox AI 처리 모듈
+AI 모듈
+
+이 모듈은 Ollama를 통한 LLM 연동과 이메일 자동 태깅, 답장 생성 기능을 제공합니다.
 """
 
-from .tagger import EmailTagger
-from .reply_gen import ReplyGenerator
-from .ollama_client import OllamaClient
+from .ollama_client import OllamaClient, OllamaConfig, EmailTagger, ReplyGenerator
+from .tagger import EmailTaggingManager, BatchProcessor
 
-__all__ = ['EmailTagger', 'ReplyGenerator', 'OllamaClient'] 
+__all__ = [
+    'OllamaClient',
+    'OllamaConfig', 
+    'EmailTagger',
+    'ReplyGenerator',
+    'EmailTaggingManager',
+    'BatchProcessor'
+] 
