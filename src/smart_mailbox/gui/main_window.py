@@ -61,6 +61,9 @@ class MainWindow(QMainWindow):
         # 시그널 연결
         self.connect_signals()
         
+        # 데이터베이스 초기화
+        self.init_database()
+        
     def setup_menu(self):
         """메뉴바 설정"""
         menubar = self.menuBar()
@@ -106,6 +109,9 @@ class MainWindow(QMainWindow):
         # 이메일 뷰에서 상태 업데이트시 상태바 변경
         self.email_view.status_changed.connect(self.status_bar.showMessage)
         
+        # 이메일 처리 요청 시그널 연결
+        self.email_view.email_processing_requested.connect(self.process_emails)
+        
     def open_email_file(self):
         """이메일 파일 열기"""
         # TODO: 파일 대화상자 구현
@@ -140,6 +146,106 @@ class MainWindow(QMainWindow):
         """정보 창 표시"""
         # TODO: 정보 창 구현
         self.status_bar.showMessage("정보 창 구현 예정")
+    
+    def init_database(self):
+        """데이터베이스 초기화"""
+        from ..storage.database import DatabaseManager
+        try:
+            self.db_manager = DatabaseManager()
+            self.status_bar.showMessage("데이터베이스 초기화 완료")
+            
+            # 태그 목록 업데이트
+            self.load_tags()
+        except Exception as e:
+            self.status_bar.showMessage(f"데이터베이스 초기화 실패: {e}")
+    
+    def load_tags(self):
+        """태그 목록 로드"""
+        try:
+            tags = self.db_manager.get_all_tags()
+            tags_data = []
+            
+            for tag in tags:
+                # 태그별 이메일 개수 계산
+                emails = self.db_manager.get_emails_by_tag(getattr(tag, 'name'))
+                tag_data = {
+                    'name': getattr(tag, 'name'),
+                    'display_name': getattr(tag, 'display_name'),
+                    'color': getattr(tag, 'color'),
+                    'is_system': getattr(tag, 'is_system'),
+                    'count': len(emails)
+                }
+                tags_data.append(tag_data)
+            
+            self.sidebar.update_tags(tags_data)
+        except Exception as e:
+            self.status_bar.showMessage(f"태그 로드 실패: {e}")
+    
+    def process_emails(self, file_paths: list):
+        """이메일 파일들 처리"""
+        from ..ai.tagger import EmailTaggingManager
+        from ..email.parser import EmailParser
+        
+        try:
+            self.status_bar.showMessage(f"{len(file_paths)}개 파일 처리 중...")
+            
+            # 이메일 파서 초기화
+            parser = EmailParser()
+            
+            # AI 태깅 매니저 초기화
+            tagging_manager = EmailTaggingManager(self.db_manager)
+            
+            processed_count = 0
+            for file_path in file_paths:
+                try:
+                    # 이메일 파싱
+                    email_data = parser.parse_eml_file(file_path)
+                    
+                    # 데이터베이스에 저장
+                    email_id = self.db_manager.save_email(email_data)
+                    
+                    # AI 자동 태깅
+                    result = tagging_manager.process_email(email_id)
+                    
+                    if result['status'] == 'success':
+                        processed_count += 1
+                        
+                except Exception as e:
+                    self.status_bar.showMessage(f"파일 처리 실패: {file_path} - {e}")
+            
+            self.status_bar.showMessage(f"처리 완료: {processed_count}/{len(file_paths)}개")
+            
+            # 화면 새로고침
+            self.load_tags()
+            self.load_emails()
+            
+        except Exception as e:
+            self.status_bar.showMessage(f"이메일 처리 실패: {e}")
+    
+    def load_emails(self):
+        """이메일 목록 로드"""
+        try:
+            emails = self.db_manager.get_all_emails(limit=50)
+            emails_data = []
+            
+            for email in emails:
+                email_data = {
+                    'id': getattr(email, 'id'),
+                    'subject': getattr(email, 'subject'),
+                    'sender': getattr(email, 'sender'),
+                    'sender_name': getattr(email, 'sender_name'),
+                    'recipient': getattr(email, 'recipient'),
+                    'recipient_name': getattr(email, 'recipient_name'),
+                    'date_sent': getattr(email, 'date_sent'),
+                    'has_attachments': getattr(email, 'has_attachments'),
+                    'ai_processed': getattr(email, 'ai_processed'),
+                    'tags': [getattr(tag, 'display_name') for tag in email.tags]
+                }
+                emails_data.append(email_data)
+            
+            self.email_view.update_email_list(emails_data)
+        except Exception as e:
+            self.status_bar.showMessage(f"이메일 로드 실패: {e}")
 
 
 def main():
