@@ -2,7 +2,7 @@
 AI Smart Mailbox 설정 관리 모듈
 """
 
-from .settings import AppSettings
-from .tags import TagManager
+from .tags import TagConfig
+from .ai import AIConfig
 
-__all__ = ['AppSettings', 'TagManager'] 
+__all__ = ['TagConfig', 'AIConfig'] 
