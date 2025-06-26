@@ -7,6 +7,9 @@ import logging
 import httpx
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
+from pathlib import Path
+
+from ..config.ai import AIConfig
 
 logger = logging.getLogger(__name__)
 
@@ -15,46 +18,100 @@ logger = logging.getLogger(__name__)
 class OllamaConfig:
     """Ollama 설정"""
     base_url: str = "http://localhost:11434"
-    model: str = "llama3.2"
     timeout: int = 60
     max_retries: int = 3
+    disable_thinking: bool = True  # thinking 비활성화 기본값
 
 
 class OllamaClient:
     """Ollama LLM 클라이언트"""
     
-    def __init__(self, config: Optional[OllamaConfig] = None):
+    def __init__(self, config: Optional[OllamaConfig] = None, ai_config: Optional[AIConfig] = None):
         self.config = config or OllamaConfig()
+        self.ai_config = ai_config or AIConfig(Path.home() / ".smart_mailbox")
         self.client = httpx.Client(
             base_url=self.config.base_url,
             timeout=self.config.timeout
         )
     
+    def _get_thinking_stop_tokens(self) -> List[str]:
+        """thinking 비활성화를 위한 중단 토큰 목록 반환"""
+        # AI 설정에서 thinking 비활성화 설정을 우선적으로 확인
+        disable_thinking = self.ai_config.is_thinking_disabled() if self.ai_config else self.config.disable_thinking
+        
+        if disable_thinking:
+            return [
+                "<thinking>",
+                "<think>", 
+                "thinking:",
+                "Think:",
+                "생각:",
+                "[생각]",
+                "분석:",
+                "[분석]"
+            ]
+        return []
+
     def is_available(self) -> bool:
         """Ollama 서버 연결 상태 확인"""
         try:
-            response = self.client.get("/api/tags")
-            return response.status_code == 200
-        except Exception as e:
-            logger.warning(f"Ollama 서버 연결 실패: {e}")
+            # HEAD 요청으로 빠르게 확인
+            response = self.client.head("/")
+            response.raise_for_status()
+            return True
+        except httpx.RequestError as e:
+            logger.warning(f"Ollama 서버 연결 실패 (HEAD): {e}")
+            # GET 요청으로 다시 시도
+            try:
+                response = self.client.get("/")
+                response.raise_for_status()
+                return True
+            except httpx.RequestError as e2:
+                logger.warning(f"Ollama 서버 연결 실패 (GET): {e2}")
+                return False
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Ollama 서버 응답 오류: {e.response.status_code}")
             return False
+
+    def check_connection(self) -> tuple[bool, List[str]]:
+        """
+        Ollama 서버 연결 상태와 사용 가능한 모델 목록을 확인합니다.
+        
+        Returns:
+            (bool, List[str]): (연결 성공 여부, 모델 이름 목록)
+        """
+        if not self.is_available():
+            return False, []
+        
+        models = self.get_available_models()
+        return True, models
     
     def get_available_models(self) -> List[str]:
         """사용 가능한 모델 목록 조회"""
         try:
             response = self.client.get("/api/tags")
-            if response.status_code == 200:
-                data = response.json()
-                return [model["name"] for model in data.get("models", [])]
+            response.raise_for_status()
+            data = response.json()
+            return [model["name"] for model in data.get("models", [])]
+        except httpx.RequestError as e:
+            logger.error(f"Ollama 모델 목록 조회 실패: {e}")
             return []
-        except Exception as e:
-            logger.error(f"모델 목록 조회 실패: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Ollama 모델 목록 조회 응답 오류: {e.response.status_code}")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"Ollama 모델 목록 응답 파싱 실패: {e}")
             return []
     
     def generate_completion(self, prompt: str, model: Optional[str] = None, 
                           temperature: float = 0.1, max_tokens: Optional[int] = None) -> Optional[str]:
         """텍스트 생성 완료"""
-        model = model or self.config.model
+        model = model or self.ai_config.get_model()
+        
+        # 모델 이름이 비어있으면 기본값 사용
+        if not model or model.strip() == "":
+            model = self.ai_config.default_settings["model"]
+            logger.warning(f"모델 이름이 비어있어 기본값 '{model}'을 사용합니다.")
         
         try:
             payload = {
@@ -65,6 +122,11 @@ class OllamaClient:
                     "temperature": temperature,
                 }
             }
+            
+            # thinking 비활성화를 위한 stop 토큰 추가
+            thinking_stop_tokens = self._get_thinking_stop_tokens()
+            if thinking_stop_tokens:
+                payload["options"]["stop"] = thinking_stop_tokens
             
             if max_tokens:
                 payload["options"]["num_predict"] = max_tokens
@@ -85,7 +147,12 @@ class OllamaClient:
     def chat_completion(self, messages: List[Dict[str, str]], model: Optional[str] = None,
                        temperature: float = 0.1, max_tokens: Optional[int] = None) -> Optional[str]:
         """채팅 완료 (대화형)"""
-        model = model or self.config.model
+        model = model or self.ai_config.get_model()
+        
+        # 모델 이름이 비어있으면 기본값 사용
+        if not model or model.strip() == "":
+            model = self.ai_config.default_settings["model"]
+            logger.warning(f"모델 이름이 비어있어 기본값 '{model}'을 사용합니다.")
         
         try:
             payload = {
@@ -96,6 +163,11 @@ class OllamaClient:
                     "temperature": temperature,
                 }
             }
+            
+            # thinking 비활성화를 위한 stop 토큰 추가
+            thinking_stop_tokens = self._get_thinking_stop_tokens()
+            if thinking_stop_tokens:
+                payload["options"]["stop"] = thinking_stop_tokens
             
             if max_tokens:
                 payload["options"]["num_predict"] = max_tokens

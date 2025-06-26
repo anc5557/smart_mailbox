@@ -1,270 +1,160 @@
-"""
-이메일 자동 태깅 매니저
-"""
-
+# src/smart_mailbox/ai/tagger.py
+import json
 import logging
-import time
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, List
 
-from .ollama_client import OllamaClient, OllamaConfig, EmailTagger
-from ..storage.database import DatabaseManager
-from ..storage.models import Email
+from .ollama_client import OllamaClient
+from ..config.tags import TagConfig
 
 logger = logging.getLogger(__name__)
 
+class Tagger:
+    """
+    AI를 사용하여 이메일에 태그를 지정하는 클래스
+    """
+    def __init__(self, ollama_client: OllamaClient, tag_config: TagConfig):
+        self.ollama_client = ollama_client
+        self.tag_config = tag_config
 
-class EmailTaggingManager:
-    """이메일 자동 태깅 매니저"""
-    
-    def __init__(self, database_manager: DatabaseManager, ollama_config: Optional[OllamaConfig] = None):
-        self.db = database_manager
-        self.ollama_client = OllamaClient(ollama_config)
-        self.email_tagger = EmailTagger(self.ollama_client)
-        
-    def is_ai_available(self) -> bool:
-        """AI 서비스 사용 가능 여부 확인"""
-        return self.ollama_client.is_available()
-    
-    def process_email(self, email_id: int) -> Dict[str, Any]:
+    def set_client(self, ollama_client: OllamaClient):
+        """Ollama 클라이언트를 업데이트합니다."""
+        self.ollama_client = ollama_client
+
+    def tag_email(self, email_content: str) -> Dict[str, Any]:
         """
-        이메일 처리 및 자동 태깅
-        
-        Args:
-            email_id: 처리할 이메일 ID
-            
-        Returns:
-            처리 결과 정보
+        주어진 이메일 내용에 대해 모든 태그를 평가하고, 가장 적합한 태그를 반환합니다.
+
+        :param email_content: 분석할 이메일의 본문 내용
+        :return: 태그 분석 결과 (가장 가능성 높은 태그, 각 태그의 신뢰도 점수 등)
         """
-        start_time = time.time()
+        all_tags = self.tag_config.get_all_tags()
         
-        try:
-            # 이메일 데이터 조회
-            email = self.db.get_email_by_id(email_id)
-            if not email:
-                raise ValueError(f"Email with ID {email_id} not found")
-            
-            # 이미 처리된 이메일인지 확인
-            if getattr(email, 'ai_processed', False):
-                logger.info(f"이메일 {email_id}는 이미 처리되었습니다.")
-                return {
-                    "email_id": email_id,
-                    "status": "already_processed",
-                    "tags": [tag.name for tag in email.tags],
-                    "processing_time": 0
-                }
-            
-            # AI 서비스 가용성 확인
-            if not self.is_ai_available():
-                logger.error("AI 서비스를 사용할 수 없습니다.")
-                self.db.log_processing(
-                    operation_type="ai_tag",
-                    operation_status="error",
-                    message="AI 서비스 사용 불가",
-                    email_id=email_id
-                )
-                return {
-                    "email_id": email_id,
-                    "status": "ai_unavailable",
-                    "error": "AI 서비스에 연결할 수 없습니다."
-                }
-            
-            # 이메일 데이터 변환
-            email_data = self._email_to_dict(email)
-            
-            # 태그 설정 조회
-            tags_config = self._get_tags_config()
-            
-            # AI 태깅 수행
-            logger.info(f"이메일 {email_id} AI 태깅 시작")
-            classification_result = self.email_tagger.classify_email(email_data, tags_config)
-            
-            # 태그 할당
-            if classification_result["tags"]:
-                self.db.assign_tags_to_email(email_id, classification_result["tags"])
-                logger.info(f"이메일 {email_id}에 태그 할당 완료: {classification_result['tags']}")
-            
-            # 신뢰도 점수 업데이트
-            processing_time = int((time.time() - start_time) * 1000)
-            
-            # 처리 로그 저장
-            self.db.log_processing(
-                operation_type="ai_tag",
-                operation_status="success",
-                message=f"태그 할당 완료: {', '.join(classification_result['tags'])}",
-                email_id=email_id,
-                processing_time_ms=processing_time
-            )
-            
-            return {
-                "email_id": email_id,
-                "status": "success",
-                "tags": classification_result["tags"],
-                "confidence_scores": classification_result["confidence_scores"],
-                "overall_confidence": classification_result["overall_confidence"],
-                "processing_time": processing_time
-            }
-            
-        except Exception as e:
-            processing_time = int((time.time() - start_time) * 1000)
-            logger.error(f"이메일 {email_id} 태깅 실패: {e}")
-            
-            # 오류 로그 저장
-            self.db.log_processing(
-                operation_type="ai_tag",
-                operation_status="error",
-                message="태깅 처리 실패",
-                email_id=email_id,
-                error_details=str(e),
-                processing_time_ms=processing_time
-            )
-            
-            return {
-                "email_id": email_id,
-                "status": "error",
-                "error": str(e),
-                "processing_time": processing_time
-            }
-    
-    def process_multiple_emails(self, email_ids: List[int]) -> List[Dict[str, Any]]:
-        """여러 이메일 일괄 처리"""
-        results = []
-        
-        for email_id in email_ids:
-            result = self.process_email(email_id)
-            results.append(result)
-            
-            # 처리 간격 (서버 부하 방지)
-            time.sleep(0.5)
-        
-        return results
-    
-    def reprocess_email(self, email_id: int, force: bool = False) -> Dict[str, Any]:
-        """이메일 재처리"""
-        if force:
-            # 강제 재처리를 위해 AI 처리 상태 초기화
-            with self.db.get_session() as session:
-                email = session.query(Email).filter_by(id=email_id).first()
-                if email:
-                    setattr(email, 'ai_processed', False)
-                    email.tags.clear()
-        
-        return self.process_email(email_id)
-    
-    def get_unprocessed_emails(self, limit: int = 50) -> List[int]:
-        """미처리 이메일 ID 목록 조회"""
-        try:
-            with self.db.get_session() as session:
-                emails = session.query(Email).filter_by(ai_processed=False).limit(limit).all()
-                return [getattr(email, 'id') for email in emails]
-        except Exception as e:
-            logger.error(f"미처리 이메일 조회 실패: {e}")
-            return []
-    
-    def get_processing_stats(self) -> Dict[str, Any]:
-        """처리 통계 조회"""
-        try:
-            with self.db.get_session() as session:
-                total_emails = session.query(Email).count()
-                processed_emails = session.query(Email).filter_by(ai_processed=True).count()
-                unprocessed_emails = total_emails - processed_emails
-                
-                # 태그별 통계
-                tag_stats = {}
-                tags = self.db.get_all_tags()
-                for tag in tags:
-                    count = len(self.db.get_emails_by_tag(getattr(tag, 'name')))
-                    tag_stats[getattr(tag, 'display_name')] = count
-                
-                return {
-                    "total_emails": total_emails,
-                    "processed_emails": processed_emails,
-                    "unprocessed_emails": unprocessed_emails,
-                    "processing_rate": processed_emails / total_emails if total_emails > 0 else 0,
-                    "tag_statistics": tag_stats
-                }
-                
-        except Exception as e:
-            logger.error(f"통계 조회 실패: {e}")
-            return {}
-    
-    def _email_to_dict(self, email) -> Dict[str, Any]:
-        """이메일 ORM 객체를 딕셔너리로 변환"""
-        return {
-            "id": email.id,
-            "subject": email.subject,
-            "sender": email.sender,
-            "sender_name": email.sender_name,
-            "recipient": email.recipient,
-            "recipient_name": email.recipient_name,
-            "body_text": email.body_text,
-            "body_html": email.body_html,
-            "date_sent": email.date_sent,
-            "has_attachments": email.has_attachments,
-            "attachment_count": email.attachment_count
-        }
-    
-    def _get_tags_config(self) -> List[Dict[str, Any]]:
-        """태그 설정 조회"""
-        tags = self.db.get_all_tags()
-        return [
-            {
-                "name": tag.name,
-                "display_name": tag.display_name,
-                "ai_prompt": tag.ai_prompt,
-                "ai_keywords": tag.ai_keywords
-            }
-            for tag in tags
-            if getattr(tag, 'ai_prompt', None)  # AI 프롬프트가 있는 태그만
+        tag_definitions = [
+            f"- **{name}**: {details['prompt']}"
+            for name, details in all_tags.items()
         ]
-    
-    def close(self):
-        """리소스 정리"""
-        if self.ollama_client:
-            self.ollama_client.close()
+        
+        prompt = f"""
+        당신은 이메일을 분석하고 가장 적절한 태그를 지정하는 AI 어시스턴트입니다.
+        다음 이메일 내용을 읽고, 아래에 정의된 태그 중에서 가장 적합한 태그들을 **하나 이상** 선택해주세요.
 
+        **분석할 이메일:**
+        ---
+        {email_content[:2000]}
+        ---
 
-class BatchProcessor:
-    """배치 처리기"""
-    
-    def __init__(self, tagging_manager: EmailTaggingManager):
-        self.tagging_manager = tagging_manager
-    
-    def process_all_unprocessed(self, batch_size: int = 10) -> Dict[str, Any]:
-        """모든 미처리 이메일 배치 처리"""
-        logger.info("미처리 이메일 배치 처리 시작")
+        **사용 가능한 태그 정의:**
+        {chr(10).join(tag_definitions)}
+
+        **출력 형식:**
+        반드시 다음 JSON 형식에 맞춰 응답해주세요. 다른 설명은 절대 추가하지 마세요.
+        {{
+          "reasoning": "이메일 내용에 기반한 간단한 분석 이유 (예: '프로젝트 마감일 언급으로 중요 태그 선택')",
+          "tags": [
+            {{
+              "name": "태그 이름",
+              "match": true,
+              "confidence": "0.0에서 1.0 사이의 신뢰도 점수"
+            }},
+            ...
+          ]
+        }}
+
+        **규칙:**
+        - 모든 태그에 대해 `match` 여부와 `confidence` 점수를 평가해야 합니다.
+        - `match`는 해당 태그가 이메일 내용과 일치하는지 여부를 나타내는 boolean 값입니다.
+        - `confidence`는 AI가 얼마나 확신하는지를 나타내는 0.0에서 1.0 사이의 숫자입니다.
+        - 하나 이상의 태그에 대해 `match`를 `true`로 설정해야 합니다.
+        - JSON 형식만 출력하고, 다른 텍스트는 절대 포함하지 마세요.
+        """
+
+        try:
+            raw_response = self.ollama_client.generate_completion(prompt)
+            
+            if not raw_response:
+                logger.error("AI로부터 응답을 받지 못했습니다.")
+                return {
+                    "error": "AI로부터 응답을 받지 못했습니다. Ollama 서버와 모델 설정을 확인하세요.", 
+                    "raw_response": None,
+                    "matched_tags": [],
+                    "confidence_scores": {}
+                }
+            
+            # LLM 응답에서 JSON 부분만 추출
+            json_response_str = self._extract_json(raw_response)
+            if not json_response_str:
+                logger.error("AI 응답에서 JSON 객체를 찾을 수 없습니다.")
+                return {
+                    "error": "AI 응답 형식이 잘못되었습니다. JSON 형식의 응답을 받지 못했습니다.", 
+                    "raw_response": raw_response,
+                    "matched_tags": [],
+                    "confidence_scores": {}
+                }
+
+            parsed_json = json.loads(json_response_str)
+            return self._validate_and_structure_response(parsed_json)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"AI 응답 JSON 파싱 실패: {e}\n응답 내용: {raw_response}")
+            return {
+                "error": f"AI 응답을 해석할 수 없습니다: {str(e)}", 
+                "raw_response": raw_response,
+                "matched_tags": [],
+                "confidence_scores": {}
+            }
+        except Exception as e:
+            logger.error(f"이메일 태깅 중 오류 발생: {e}")
+            return {
+                "error": f"이메일 태깅 중 오류가 발생했습니다: {str(e)}",
+                "matched_tags": [],
+                "confidence_scores": {}
+            }
+
+    def _extract_json(self, text: str) -> str:
+        """문자열에서 JSON 객체 또는 배열을 추출합니다."""
+        # ```json ... ``` 코드 블록 처리
+        if '```json' in text:
+            text = text.split('```json')[1].split('```')[0]
+
+        # 첫 '{' 또는 '[' 부터 마지막 '}' 또는 ']' 까지 추출
+        start_brace = text.find('{')
+        start_bracket = text.find('[')
         
-        total_processed = 0
-        successful_processed = 0
-        failed_processed = 0
+        if start_brace == -1 and start_bracket == -1:
+            return ""
+
+        if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+            start = start_brace
+            end = text.rfind('}')
+        else:
+            start = start_bracket
+            end = text.rfind(']')
+
+        if start != -1 and end != -1 and end > start:
+            return text[start:end+1]
         
-        while True:
-            # 미처리 이메일 조회
-            unprocessed_ids = self.tagging_manager.get_unprocessed_emails(batch_size)
-            
-            if not unprocessed_ids:
-                break
-            
-            logger.info(f"배치 처리 중: {len(unprocessed_ids)}개 이메일")
-            
-            # 배치 처리
-            results = self.tagging_manager.process_multiple_emails(unprocessed_ids)
-            
-            # 결과 집계
-            for result in results:
-                total_processed += 1
-                if result["status"] == "success":
-                    successful_processed += 1
-                else:
-                    failed_processed += 1
-            
-            logger.info(f"배치 처리 완료: 성공 {successful_processed}, 실패 {failed_processed}")
+        return ""
+
+    def _validate_and_structure_response(self, parsed_json: Dict) -> Dict:
+        """파싱된 JSON을 검증하고 구조화합니다."""
+        if "tags" not in parsed_json or not isinstance(parsed_json["tags"], list):
+            raise ValueError("응답에 'tags' 필드가 없거나 리스트가 아닙니다.")
+
+        # 필터링된 태그와 신뢰도 점수
+        matched_tags = [
+            tag["name"] for tag in parsed_json["tags"] 
+            if tag.get("match") is True and tag.get("name") in self.tag_config.get_tag_names()
+        ]
         
-        logger.info(f"배치 처리 완료: 총 {total_processed}개 처리됨")
-        
+        confidence_scores = {
+            tag.get("name"): float(tag.get("confidence", 0.0))
+            for tag in parsed_json["tags"]
+            if tag.get("name") in self.tag_config.get_tag_names()
+        }
+
         return {
-            "total_processed": total_processed,
-            "successful": successful_processed,
-            "failed": failed_processed,
-            "success_rate": successful_processed / total_processed if total_processed > 0 else 0
+            "matched_tags": matched_tags,
+            "confidence_scores": confidence_scores,
+            "reasoning": parsed_json.get("reasoning", ""),
+            "raw_response": parsed_json
         } 

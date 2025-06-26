@@ -5,13 +5,12 @@ AI 모듈
 """
 
 from .ollama_client import OllamaClient, OllamaConfig, EmailTagger, ReplyGenerator
-from .tagger import EmailTaggingManager, BatchProcessor
+from .tagger import Tagger
 
 __all__ = [
     'OllamaClient',
     'OllamaConfig', 
     'EmailTagger',
     'ReplyGenerator',
-    'EmailTaggingManager',
-    'BatchProcessor'
+    'Tagger'
 ] 
