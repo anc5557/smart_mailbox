@@ -9,10 +9,30 @@ from pathlib import Path
 
 # PyQt6 애플리케이션 임포트
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 
 # GUI 모듈 임포트
 from .gui import MainWindow
+
+# 테마 적용을 위한 라이브러리
+import qdarktheme
+
+def apply_theme(theme: str):
+    """설정에 따라 애플리케이션 테마를 적용합니다."""
+    print(f"🎨 apply_theme 호출됨: {theme}")  # 디버깅용
+    
+    # qdarktheme는 "system" 대신 "auto"를 사용
+    if theme == "system":
+        theme = "auto"
+        print(f"🔄 system → auto 변환")  # 디버깅용
+    
+    try:
+        qdarktheme.setup_theme(theme=theme)
+        print(f"✅ 테마 적용 성공: {theme}")
+        
+    except Exception as e:
+        print(f"❌ 테마 적용 실패: {e}")
+
 
 def main():
     """메인 애플리케이션 엔트리포인트"""
@@ -27,13 +47,19 @@ def main():
     app.setOrganizationName("Smart Mailbox")
     app.setOrganizationDomain("smartmailbox.local")
     
-    # High DPI 스케일링 설정 (PyQt6에서는 자동으로 처리됨)
-    # app.setAttribute 설정은 PyQt6에서 기본적으로 활성화됨
+    # 초기 테마 적용
+    settings = QSettings()
+    initial_theme = settings.value("general/theme", "auto", type=str)
+    apply_theme(initial_theme)
     
     try:
         # 메인 윈도우 생성 및 표시
         print("GUI 초기화 중...")
         window = MainWindow()
+        
+        # 설정 변경 시 테마 다시 적용
+        window.theme_changed.connect(apply_theme)
+        
         window.show()
         
         print("✅ AI Smart Mailbox가 성공적으로 시작되었습니다!")
@@ -46,6 +72,7 @@ def main():
         print(f"❌ 애플리케이션 시작 중 오류 발생: {e}")
         print("GUI 라이브러리가 제대로 설치되었는지 확인해주세요.")
         return 1
+
 
 if __name__ == "__main__":
     main() 
