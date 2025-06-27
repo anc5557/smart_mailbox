@@ -10,7 +10,6 @@ class FileManager:
     def __init__(self, app_name: str = "SmartMailbox"):
         self.app_name = app_name
         self.base_dir = Path.home() / self.app_name
-        self.db_path = self.base_dir / "database.db"
         self.config_path = self.base_dir / "config.json"
         self.tags_config_path = self.base_dir # tags.json은 이 디렉토리에 저장됩니다.
         self.emails_dir = self.base_dir / "emails"
@@ -28,7 +27,7 @@ class FileManager:
             self.logs_dir.mkdir(exist_ok=True)
             print(f"데이터 디렉토리 확인/생성 완료: {self.base_dir}")
         except OSError as e:
-            print(f"��류: 데이터 디렉토리 생성에 실패했습니다. {e}")
+            print(f"오류: 데이터 디렉토리 생성에 실패했습니다. {e}")
             # 여기서 적절한 예외 처리를 하거나 프로그램을 종료할 수 있습니다.
             raise
 
@@ -38,11 +37,11 @@ class FileManager:
         """
         return self.base_dir
 
-    def get_db_path(self) -> Path:
+    def get_data_dir(self) -> str:
         """
-        SQLite 데이터베이스 파일의 전체 경로를 반환합니다.
+        JSON 데이터 파일들이 저장될 디렉토리 경로를 반환합니다.
         """
-        return self.db_path
+        return str(self.base_dir)
 
     def get_config_path(self) -> Path:
         """
@@ -78,12 +77,23 @@ class FileManager:
         :return: 저장된 파일의 Path 객체
         """
         original_filename = Path(original_path).name
-        # TODO: 파일명 중복 처리 로직 추가 (예: 타임스탬프나 UUID 사용)
+        filename_stem = Path(original_filename).stem
+        filename_suffix = Path(original_filename).suffix
+        
+        # 파일명 중복 처리
         target_path = self.emails_dir / original_filename
+        counter = 1
+        
+        while target_path.exists():
+            # 중복되는 경우 파일명에 번호 추가 (예: email_1.eml)
+            new_filename = f"{filename_stem}_{counter}{filename_suffix}"
+            target_path = self.emails_dir / new_filename
+            counter += 1
         
         try:
             with open(target_path, 'wb') as f:
                 f.write(content)
+            print(f"이메일 파일 저장 완료: {target_path}")
             return target_path
         except IOError as e:
             print(f"오류: 이메일 파일 저장에 실패했습니다. {e}")
@@ -92,4 +102,4 @@ class FileManager:
 # 이 클래스는 주로 다른 모듈에서 인스턴스화하여 사용됩니다.
 # 예시:
 # file_manager = FileManager()
-# db_connection_string = f"sqlite:///{file_manager.get_db_path()}"
+# data_dir = file_manager.get_data_dir()
