@@ -15,7 +15,6 @@ dependencies = [
     # GUI 프레임워크
     "PyQt6>=6.4.0",
     "PyQt6-tools>=6.4.0",
-
     # Ollama 연결용
     "ollama>=0.5.1",
     # 유틸리티
