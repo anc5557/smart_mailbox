@@ -101,15 +101,35 @@ class EmailParser:
         
         # 발신자 정보 처리
         from_header = message.get('From', '')
-        sender_name, sender_email = parseaddr(from_header)
-        sender_email = sender_email if sender_email else from_header
-        sender_name = self._decode_header(sender_name) if sender_name else None
+        from_header_decoded = self._decode_header(from_header)
+        sender_name, sender_email = parseaddr(from_header_decoded)
         
-        # 수신자 정보 처리
+        # 발신자 이름이 없으면 원본에서 다시 시도
+        if not sender_name and from_header:
+            sender_name, sender_email = parseaddr(from_header)
+            sender_name = self._decode_header(sender_name) if sender_name else None
+        
+        sender_email = sender_email if sender_email else from_header_decoded
+        
+        # 수신자 정보 처리 (첫 번째 수신자만)
         to_header = message.get('To', '')
-        recipient_name, recipient_email = parseaddr(to_header)
-        recipient_email = recipient_email if recipient_email else to_header
-        recipient_name = self._decode_header(recipient_name) if recipient_name else None
+        to_header_decoded = self._decode_header(to_header)
+        
+        # 다중 수신자 중 첫 번째만 추출
+        if ',' in to_header_decoded:
+            first_recipient = to_header_decoded.split(',')[0].strip()
+        else:
+            first_recipient = to_header_decoded
+            
+        recipient_name, recipient_email = parseaddr(first_recipient)
+        
+        # 수신자 이름이 없으면 원본에서 다시 시도
+        if not recipient_name and to_header:
+            first_to = to_header.split(',')[0].strip() if ',' in to_header else to_header
+            recipient_name, recipient_email = parseaddr(first_to)
+            recipient_name = self._decode_header(recipient_name) if recipient_name else None
+        
+        recipient_email = recipient_email if recipient_email else first_recipient
         
         # 날짜 처리
         date_header = message.get('Date')

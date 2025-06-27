@@ -10,6 +10,7 @@ class TagConfig:
     def __init__(self, config_path: Path):
         self.config_path = config_path
         self.config_file = self.config_path / "tags.json"
+        
         self.default_tags = {
             "중요": {"color": "#FF0000", "prompt": "이 이메일이 긴급하거나 매우 중요한 내용을 포함하는지 판단합니다."},
             "회신필요": {"color": "#0000FF", "prompt": "이 이메일이 명시적 또는 암묵적으로 답장을 요구하는지 판단합니다."},
@@ -28,12 +29,26 @@ class TagConfig:
         
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                # 기본 태그와 저장된 커스텀 태그를 병합
-                stored_tags = json.load(f)
-                # 기본 태그의 프롬프트나 색상이 변경되었을 수 있으므로 업데이트
-                updated_tags = self.default_tags.copy()
-                updated_tags.update(stored_tags)
-                return updated_tags
+                stored_data = json.load(f)
+                
+                # 배열 형태인지 딕셔너리 형태인지 확인
+                if isinstance(stored_data, list):
+                    # JSONStorageManager가 생성한 배열 형태의 태그 데이터
+                    # 기본 태그로 시작하여 기존 설정 파일을 새 형태로 변환
+                    print("기존 JSON 스토리지 태그 형태를 TagConfig 형태로 변환합니다.")
+                    self._save_tags(self.default_tags)
+                    return self.default_tags
+                elif isinstance(stored_data, dict):
+                    # 기존 TagConfig 형태의 딕셔너리 데이터
+                    updated_tags = self.default_tags.copy()
+                    updated_tags.update(stored_data)
+                    return updated_tags
+                else:
+                    # 알 수 없는 형태
+                    print("알 수 없는 태그 파일 형태입니다. 기본 설정으로 복원합니다.")
+                    self._save_tags(self.default_tags)
+                    return self.default_tags
+                    
         except (json.JSONDecodeError, IOError) as e:
             print(f"태그 설정 파일을 읽는 중 오류 발생: {e}. 기본 설정으로 복원합니다.")
             self._save_tags(self.default_tags)
@@ -58,6 +73,8 @@ class TagConfig:
         모든 태그의 이름 목록을 반환합니다.
         """
         return list(self.tags.keys())
+    
+
 
     def add_custom_tag(self, name: str, color: str, prompt: str) -> bool:
         """

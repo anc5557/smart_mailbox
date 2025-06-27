@@ -11,7 +11,7 @@ class AIConfig:
         self.config_path = config_path
         self.config_file = self.config_path / "ai_config.json"
         self.default_settings = {
-            "model": "llama3.2",
+            "model": "llama3.2",  # 기본값은 그대로 유지
             "temperature": 0.7,
             "max_tokens": 1024,
             "disable_thinking": True,  # thinking 비활성화 기본값
