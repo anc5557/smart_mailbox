@@ -8,8 +8,10 @@ class AIConfig:
     AI 관련 설정을 관리하는 클래스
     """
     def __init__(self, config_path: Path):
-        self.config_path = config_path
-        self.config_file = self.config_path / "ai_config.json"
+        # ollama.json 파일을 다른 설정 파일들과 같은 위치에 저장 (~/SmartMailbox/)
+        from pathlib import Path
+        data_dir = Path.home() / "SmartMailbox"
+        self.config_file = data_dir / "ollama.json"
         self.default_settings = {
             "model": "llama3.2",  # 기본값은 그대로 유지
             "temperature": 0.7,
@@ -44,7 +46,8 @@ class AIConfig:
         """
         AI 설정을 파일에 저장합니다.
         """
-        self.config_path.mkdir(parents=True, exist_ok=True)
+        # SmartMailbox 디렉터리 생성 (다른 설정 파일들과 같은 위치)
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file, 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=4)
 

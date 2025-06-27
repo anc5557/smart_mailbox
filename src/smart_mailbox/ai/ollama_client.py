@@ -104,7 +104,7 @@ class OllamaClient:
         return selected_model
 
     def generate_completion(self, prompt: str, model: Optional[str] = None, 
-                          temperature: float = 0.1, max_tokens: Optional[int] = None) -> Optional[str]:
+                          temperature: float = 0.0, max_tokens: Optional[int] = None) -> Optional[str]:
         """텍스트 생성 완료"""
         
         # 최적의 모델 선택
@@ -116,13 +116,17 @@ class OllamaClient:
             # ollama.generate 사용
             options = {
                 "temperature": temperature,
+                "top_p": 0.1,  # 낮은 top_p로 더 결정적인 응답
+                "repeat_penalty": 1.0,  # 반복 방지
             }
             
             if max_tokens:
                 options["num_predict"] = max_tokens
+            else:
+                options["num_predict"] = 256  # 짧은 응답을 위한 기본값
             
-            # thinking 비활성화 설정 적용
-            think_enabled = not self.config.disable_thinking
+            # thinking 강제 비활성화
+            think_enabled = False
             
             response = self.client.generate(
                 model=selected_model,
@@ -138,7 +142,7 @@ class OllamaClient:
                     raw_text = response.response
                     if raw_text is not None:
                         raw_text = raw_text.strip()
-                        # thinking 비활성화가 되어있어도 안전을 위해 후처리 유지
+                        # thinking 태그 제거
                         cleaned_text = self._clean_thinking_tags(raw_text)
                         return cleaned_text if cleaned_text else None
                 except AttributeError as e:

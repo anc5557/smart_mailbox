@@ -11,11 +11,24 @@ class TagConfig:
         self.config_path = config_path
         self.config_file = self.config_path / "tags.json"
         
+        # 개선된 기본 태그 설정
         self.default_tags = {
-            "중요": {"color": "#FF0000", "prompt": "이 이메일이 긴급하거나 매우 중요한 내용을 포함하는지 판단합니다."},
-            "회신필요": {"color": "#0000FF", "prompt": "이 이메일이 명시적 또는 암묵적으로 답장을 요구하는지 판단합니다."},
-            "스팸": {"color": "#808080", "prompt": "이 이메일이 원치 않는 스팸 또는 정크 메일인지 판단합니다."},
-            "광고": {"color": "#FFA500", "prompt": "이 이메일이 제품 또는 서비스의 마케팅이나 광고인지 판단합니다."}
+            "중요": {
+                "color": "#FF0000", 
+                "prompt": "긴급, 중요, ASAP, 마감, 결재, 승인 등 중요한 키워드가 있는 메일"
+            },
+            "회신필요": {
+                "color": "#0000FF", 
+                "prompt": "질문, 확인 요청, 회의 일정, 피드백 요청 등 답변이 필요한 메일"
+            },
+            "스팸": {
+                "color": "#808080", 
+                "prompt": "광고, 의심스러운 발신자, 피싱, 사기 등으로 의심되는 메일"
+            },
+            "광고": {
+                "color": "#FFA500", 
+                "prompt": "마케팅, 홍보, 할인, 이벤트, 뉴스레터 등 상업적 목적의 메일"
+            }
         }
         self.tags = self._load_tags()
 
