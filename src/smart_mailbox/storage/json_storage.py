@@ -200,7 +200,16 @@ class JSONStorageManager:
                 "color": "#FF4444",
                 "is_system": True,
                 "is_active": True,
-                "ai_prompt": "이 이메일이 긴급하거나 매우 중요한 내용을 포함하는지 판단해주세요.",
+                "ai_prompt": """다음 기준 중 하나 이상에 해당하면 중요 태그를 적용하세요:
+
+1. **긴급성 표현**: "긴급", "urgent", "ASAP", "즉시", "오늘까지", "deadline" 등의 표현
+2. **중요도 표현**: "중요", "important", "critical", "필수", "반드시" 등의 표현  
+3. **상사/고객/중요 인물**: 회사 임원, 주요 고객, VIP 등으로부터의 이메일
+4. **업무 중요 사안**: 프로젝트 마감, 계약 관련, 법적 사안, 보안 문제 등
+5. **결정 요구**: 승인, 결재, 중요한 의사결정이 필요한 사안
+6. **시간 제약**: 특정 시간까지 응답이나 처리가 필요한 사안
+
+제목이나 내용에서 위 요소들이 명확히 드러나는 경우에만 적용하세요.""",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             },
@@ -212,7 +221,16 @@ class JSONStorageManager:
                 "color": "#4A90E2",
                 "is_system": True,
                 "is_active": True,
-                "ai_prompt": "이 이메일이 명시적 또는 암묵적으로 답장을 요구하는지 판단해주세요.",
+                "ai_prompt": """다음 기준에 해당하면 회신필요 태그를 적용하세요:
+
+1. **직접적 질문**: 구체적인 질문이 포함되어 있는 경우
+2. **응답 요청**: "답장 주세요", "회신 바랍니다", "알려주세요" 등의 명시적 요청
+3. **확인 요청**: 일정, 참석, 승인 등에 대한 확인을 요구하는 경우  
+4. **회의/미팅 관련**: 회의 일정 조율, 참석 여부 확인 등
+5. **정보 요청**: 문서, 자료, 정보 제공을 요구하는 경우
+6. **피드백 요청**: 의견, 검토, 평가를 요구하는 경우
+
+단순 정보 전달이나 일방적 알림은 제외하세요.""",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             },
@@ -224,7 +242,16 @@ class JSONStorageManager:
                 "color": "#FF6B6B",
                 "is_system": True,
                 "is_active": True,
-                "ai_prompt": "이 이메일이 원치 않는 스팸 또는 정크 메일인지 판단해주세요.",
+                "ai_prompt": """다음 기준에 해당하면 스팸 태그를 적용하세요:
+
+1. **의심스러운 발신자**: 알 수 없는 이메일 주소, 랜덤한 문자열 조합
+2. **스팸 특징적 제목**: "광고", "혜택", "무료", "당첨", "긴급", 과도한 특수문자
+3. **피싱 의심**: 개인정보, 비밀번호, 카드정보 요구
+4. **과도한 링크**: 의심스러운 링크나 첨부파일이 다수 포함
+5. **문법/맞춤법 오류**: 부자연스러운 한국어나 번역체 문장
+6. **금전 관련 사기**: 투자, 대출, 상금, 환급 등 금전적 유혹
+
+신뢰할 수 있는 기업이나 개인으로부터의 이메일은 제외하세요.""",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             },
@@ -236,7 +263,16 @@ class JSONStorageManager:
                 "color": "#FFA500",
                 "is_system": True,
                 "is_active": True,
-                "ai_prompt": "이 이메일이 제품 또는 서비스의 마케팅이나 광고인지 판단해주세요.",
+                "ai_prompt": """다음 기준에 해당하면 광고 태그를 적용하세요:
+
+1. **상업적 홍보**: 제품, 서비스, 브랜드를 홍보하는 내용
+2. **마케팅 용어**: "할인", "특가", "이벤트", "프로모션", "세일" 등
+3. **뉴스레터**: 회사 소식, 업계 동향 등을 정기적으로 전달하는 이메일
+4. **구매 유도**: 구매 링크, 쿠폰, 혜택 안내 등이 포함된 경우
+5. **구독 서비스**: 정기 구독 서비스의 홍보나 안내 메일
+6. **마케팅 템플릿**: 전형적인 마케팅 이메일 형식과 디자인
+
+개인적인 추천이나 업무 관련 제품 소개는 제외하세요.""",
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
@@ -502,6 +538,20 @@ class JSONStorageManager:
                 emails[i] = email
                 self._save_json(self.emails_file, emails)
                 break
+    
+    def get_generated_replies_for_email(self, original_email_id: str) -> List[Dict[str, Any]]:
+        """특정 이메일에 대해 생성된 답장들을 반환합니다."""
+        emails = self._load_json(self.emails_file)
+        
+        replies = []
+        for email in emails:
+            if (email.get('is_generated_reply', False) and 
+                email.get('original_email_id') == original_email_id):
+                replies.append(email)
+        
+        # 날짜순으로 정렬 (최신순)
+        replies.sort(key=lambda x: x.get('date_sent', ''), reverse=True)
+        return replies
     
     def delete_email(self, email_id: str) -> bool:
         """이메일을 삭제합니다."""
