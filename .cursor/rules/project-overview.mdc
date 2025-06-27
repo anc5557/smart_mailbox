@@ -11,32 +11,47 @@ alwaysApply: false
 ## 기술 스택
 - **언어**: Python 3.11
 - **패키지 관리**: uv
-- **AI/LLM**: LangChain, LangGraph
 - **LLM 백엔드**: Ollama (로컬 실행)
-- **GUI 프레임워크**: PyQt6
-- **데이터베이스**: SQLite (내장)
+- **GUI 프레임워크**: PyQt6 (qdarktheme 포함)
+- **데이터베이스**: JSON 파일 기반 저장소
 - **배포**: Windows .exe, macOS .dmg
 
 ## 주요 파일 구조
 - [src/smart_mailbox/main.py](mdc:src/smart_mailbox/main.py) - 애플리케이션 진입점
+- [src/smart_mailbox/gui/main_window.py](mdc:src/smart_mailbox/gui/main_window.py) - 메인 윈도우
+- [src/smart_mailbox/ai/tagger.py](mdc:src/smart_mailbox/ai/tagger.py) - AI 태깅 시스템
+- [src/smart_mailbox/storage/json_storage.py](mdc:src/smart_mailbox/storage/json_storage.py) - JSON 기반 데이터 저장소
 - [pyproject.toml](mdc:pyproject.toml) - 프로젝트 설정 및 의존성
 - [README.md](mdc:README.md) - 프로젝트 문서
 
 ## 핵심 기능
-1. **파일 드래그 앤 드롭**: .eml 파일 업로드
+1. **파일 드래그 앤 드롭**: .eml 파일 업로드 지원
 2. **자동 태깅**: "중요", "회신필요", "스팸", "광고" + 커스텀 태그
 3. **AI 답장 생성**: "회신필요" 태그가 달린 이메일에 대한 자동 답장
-4. **설정 관리**: Ollama 연결 설정, 커스텀 태그 관리
-5. **향후 확장**: 구글메일 연동
+4. **설정 관리**: Ollama 연결 설정, 커스텀 태그 관리, 테마 설정
+5. **백그라운드 처리**: 멀티스레딩을 통한 이메일 처리
 
 ## UI 구조
 - **사이드바**: 태그 목록 (중요, 회신필요, 스팸, 광고, 커스텀 태그)
 - **메인 영역**: 
   - 홈: 드래그 앤 드롭 영역 + 진행 상황
   - 태그별 보기: 해당 태그의 이메일 목록
+  - 이메일 상세 보기: 본문, 첨부파일, AI 태그, 답장
+- **검색 기능**: 상단 검색바를 통한 이메일 검색
+- **테마 지원**: 다크/라이트/자동 테마
 
 ## 현재 개발 상태
 - [x] 프로젝트 초기 설정 완료
-- [x] 의존성 설치 완료 (Python 3.11, PyQt6, LangChain 등)
+- [x] 의존성 설치 완료 (Python 3.11, PyQt6, Ollama 등)
 - [x] 기본 패키지 구조 생성
-- [ ] GUI 구현 시작 예정
+- [x] GUI 메인 윈도우 구현 완료
+- [x] 사이드바 및 이메일 뷰어 구현 완료
+- [x] .eml 파일 파싱 기능 구현 완료
+- [x] Ollama 클라이언트 구현 완료
+- [x] AI 태깅 시스템 구현 완료
+- [x] JSON 기반 데이터 저장소 구현 완료
+- [x] AI 답장 생성 기능 구현 완료
+- [x] 설정 관리 UI 구현 완료
+- [x] 백그라운드 이메일 처리 워커 구현 완료
+- [x] 테마 관리 시스템 구현 완료
+- [ ] 빌드 스크립트 및 배포 준비

@@ -15,131 +15,134 @@ alwaysApply: false
 ## 🎯 핵심 기능
 
 ### 1. 이메일 파일 처리
-- **.eml 파일 드래그 앤 드롭** 지원
-- 이메일 메타데이터 추출 (발신자, 수신자, 제목, 본문, 날짜)
+- **.eml 파일 드래그 앤 드롭** 지원 ([email_view.py](mdc:src/smart_mailbox/gui/email_view.py) 구현)
+- 이메일 메타데이터 추출 (발신자, 수신자, 제목, 본문, 날짜) ([parser.py](mdc:src/smart_mailbox/email/parser.py) 구현)
 - 첨부파일 정보 파싱
-- 다국어 인코딩 지원
+- 다국어 인코딩 지원 (chardet 사용)
+- 백그라운드 처리 ([EmailProcessingWorker](mdc:src/smart_mailbox/gui/main_window.py) 구현)
 
 ### 2. AI 기반 자동 태깅
-**기본 태그**:
+**기본 태그** ([json_storage.py](mdc:src/smart_mailbox/storage/json_storage.py) 정의):
 - 🔴 **중요**: 긴급하거나 중요한 내용
 - 💬 **회신필요**: 답장이 필요한 이메일
 - 🚫 **스팸**: 스팸으로 분류된 이메일
 - 📢 **광고**: 마케팅/광고 이메일
 
-**기능**:
-- LLM을 통한 자동 분류
-- 신뢰도 점수 표시
+**기능** ([tagger.py](mdc:src/smart_mailbox/ai/tagger.py) 구현):
+- Ollama를 통한 로컬 LLM 분류
+- 단일 프롬프트로 모든 태그 동시 분류
+- JSON 응답 파싱 및 유효성 검증
 - 수동 태그 수정 가능
 - 커스텀 태그 추가 지원
 
 ### 3. AI 답장 생성
-- **회신필요** 태그가 달린 이메일에 대한 자동 답장 생성
+- **회신필요** 태그가 달린 이메일에 대한 자동 답장 생성 ([reply_gen.py](mdc:src/smart_mailbox/ai/reply_gen.py) 구현)
 - 원본 이메일 컨텍스트 분석
 - 적절한 톤앤매너 적용
 - 사용자 검토 후 수정 가능
-- 답장 템플릿 기능
+- 답장을 별도 데이터로 저장
 
 ### 4. 사용자 인터페이스
-**레이아웃**:
-- **좌측 사이드바**: 태그 목록 및 필터
+**레이아웃** ([main_window.py](mdc:src/smart_mailbox/gui/main_window.py) 구현):
+- **좌측 사이드바**: 태그 목록 및 필터 ([sidebar.py](mdc:src/smart_mailbox/gui/sidebar.py) 구현)
+- **상단 검색바**: 실시간 이메일 검색
 - **메인 영역**: 
   - 홈 화면: 드래그 앤 드롭 영역 + 진행 상황
-  - 태그별 보기: 이메일 목록 및 상세 내용
-- **상단 메뉴바**: 설정, 도움말 등
+  - 태그별 보기: 이메일 목록 및 상세 내용 ([email_view.py](mdc:src/smart_mailbox/gui/email_view.py) 구현)
 
 **기능**:
 - 이메일 검색 및 필터링
 - 태그별 정렬
-- 미리보기 패널
-- 다크/라이트 모드 지원
+- 이메일 상세 보기 패널
+- 다크/라이트/자동 테마 지원 (qdarktheme)
+- 재분석 및 삭제 기능
+- 진행 상황 표시
 
 ### 5. 설정 관리
-**Ollama 연결 설정**:
+**Ollama 연결 설정** ([settings.py](mdc:src/smart_mailbox/gui/settings.py) 구현):
 - 서버 URL 설정
-- 모델 선택
-- API 키 관리 (필요시)
-- 연결 상태 확인
+- 모델 선택 (자동 목록 로드)
+- 연결 상태 확인 및 테스트
+- AI 매개변수 조정 (temperature, max_tokens)
 
 **커스텀 태그 관리**:
 - 새 태그 추가
-- 태그별 프롬프트 설정
-- 태그 색상 및 아이콘 커스터마이징
-- 태그 우선순위 설정
+- 태그별 AI 프롬프트 설정
+- 태그 색상 및 표시명 커스터마이징
+- 태그 활성화/비활성화
+
+**일반 설정**:
+- 테마 설정 (라이트/다크/시스템)
+- 앱 동작 설정
 
 ## 🔧 기술 아키텍처
 
 ### 개발 환경
 - **Python**: 3.11
 - **패키지 관리**: uv
-- **AI 프레임워크**: LangChain, LangGraph
 - **LLM 백엔드**: Ollama (로컬)
-- **GUI**: PyQt6
-- **데이터베이스**: SQLite (내장)
+- **GUI**: PyQt6 + qdarktheme
+- **데이터베이스**: JSON 파일 기반 ([json_storage.py](mdc:src/smart_mailbox/storage/json_storage.py))
 
 ### 프로젝트 구조
-프로젝트는 다음과 같은 구조를 따릅니다:
-- [src/smart_mailbox/](mdc:src/smart_mailbox) - 메인 패키지
-- [pyproject.toml](mdc:pyproject.toml) - 프로젝트 설정 및 의존성
-- [README.md](mdc:README.md) - 프로젝트 문서
-
-**세부 모듈 구조**:
 ```
 src/smart_mailbox/
-├── gui/                 # GUI 컴포넌트
-│   ├── main_window.py   # 메인 윈도우
+├── gui/                 # GUI 컴포넌트 (완전 구현)
+│   ├── main_window.py   # 메인 윈도우 + 백그라운드 워커
 │   ├── sidebar.py       # 사이드바
 │   ├── email_view.py    # 이메일 뷰어
 │   └── settings.py      # 설정 창
-├── ai/                  # AI 처리 모듈
+├── ai/                  # AI 처리 모듈 (완전 구현)
 │   ├── tagger.py        # 자동 태깅
 │   ├── reply_gen.py     # 답장 생성
 │   └── ollama_client.py # Ollama 연결
-├── email/               # 이메일 처리
-│   ├── parser.py        # .eml 파싱
-│   └── analyzer.py      # 이메일 분석
-├── storage/             # 내장 저장소 관리
-│   ├── database.py      # SQLite 데이터베이스
-│   ├── models.py        # 데이터 모델
+├── email/               # 이메일 처리 (완전 구현)
+│   └── parser.py        # .eml 파싱
+├── storage/             # 내장 저장소 관리 (완전 구현)
+│   ├── json_storage.py  # JSON 데이터베이스
 │   └── file_manager.py  # 파일 시스템 관리
-└── config/              # 설정 관리
-    ├── settings.py      # 앱 설정
-    └── tags.py          # 태그 관리
+└── config/              # 설정 관리 (완전 구현)
+    ├── ai.py            # AI 설정
+    ├── tags.py          # 태그 관리
+    └── logger.py        # 로깅 시스템
 ```
 
 ### 데이터 플로우
 1. **이메일 입력**: 사용자가 .eml 파일 드래그 앤 드롭
-2. **파싱**: 이메일 메타데이터 및 본문 추출
-3. **AI 분석**: LLM을 통한 자동 태깅
-4. **저장**: 로컬 데이터베이스에 저장
-5. **표시**: GUI에 결과 표시
-6. **답장 생성**: 필요시 AI 답장 생성
+2. **백그라운드 처리**: EmailProcessingWorker가 파일들을 순차 처리
+3. **파싱**: EmailParser가 이메일 메타데이터 및 본문 추출
+4. **AI 분석**: Tagger가 Ollama를 통해 자동 태깅
+5. **답장 생성**: 회신필요 태그 시 ReplyGenerator가 자동 답장 생성
+6. **저장**: JSONStorageManager가 로컬 JSON 파일에 저장
+7. **표시**: GUI에 실시간 진행상황 및 결과 표시
 
 ## 📋 개발 로드맵
 
-### Phase 1: 기본 구조 (1-2주)
+### Phase 1: 기본 구조 (완료)
 - [x] 프로젝트 초기 설정
 - [x] 기본 GUI 레이아웃
 - [x] .eml 파일 파싱 기능
 - [x] Ollama 연결 기능
 
-### Phase 2: 핵심 기능 (2-3주)
+### Phase 2: 핵심 기능 (완료)
 - [x] 자동 태깅 시스템
 - [x] 기본 태그 분류 AI
-- [x] 데이터 저장 시스템
+- [x] JSON 기반 데이터 저장 시스템
 - [x] 이메일 목록 표시
 
-### Phase 3: 고급 기능 (2주)
-- [ ] AI 답장 생성
-- [ ] 커스텀 태그 기능
-- [ ] 설정 관리 UI
-- [ ] 검색 및 필터 기능
+### Phase 3: 고급 기능 (완료)
+- [x] AI 답장 생성
+- [x] 커스텀 태그 기능
+- [x] 설정 관리 UI
+- [x] 검색 및 필터 기능
+- [x] 백그라운드 처리
+- [x] 테마 시스템
 
-### Phase 4: 완성 및 배포 (1-2주)
+### Phase 4: 완성 및 배포 (진행 중)
 - [ ] 성능 최적화
 - [ ] 테스트 및 버그 수정
 - [ ] Windows/macOS 빌드 스크립트
-- [ ] 문서화
+- [ ] 문서화 완성
 
 ### 향후 확장 계획
 - Gmail API 연동
@@ -150,7 +153,7 @@ src/smart_mailbox/
 ## 🔒 보안 및 프라이버시
 - 모든 이메일 데이터는 로컬에서만 처리
 - Ollama를 통한 로컬 LLM 사용으로 데이터 외부 전송 방지
-- 사용자 설정 및 데이터 암호화 저장
+- 사용자 설정 및 데이터 JSON 파일로 투명하게 저장
 - 민감한 정보 로그 제외
 
 ## 📊 성능 목표
