@@ -1,6 +1,7 @@
 # src/smart_mailbox/ai/reply_gen.py
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .ollama_client import OllamaClient
+from ..config.logger import logger
 
 class ReplyGenerator:
     """
@@ -13,12 +14,12 @@ class ReplyGenerator:
         """Ollama 클라이언트를 업데이트합니다."""
         self.ollama_client = ollama_client
 
-    def generate_reply(self, email_data: Dict[str, Any]) -> str:
+    def generate_reply(self, email_data: Dict[str, Any]) -> Optional[str]:
         """
         주어진 이메일 데이터에 대한 답장을 생성합니다.
 
         :param email_data: 원본 이메일 데이터 딕셔너리
-        :return: 생성된 답장 텍스트
+        :return: 생성된 답장 텍스트 또는 None
         """
         try:
             # 이메일 내용 준비
@@ -54,5 +55,5 @@ class ReplyGenerator:
                 return response.strip()
             return "답장 생성 중 오류가 발생했습니다."
         except Exception as e:
-            print(f"Error generating reply: {e}")
-            return "답장 생성 중 오류가 발생했습니다."
+            logger.error(f"Error generating reply: {e}")
+            return None

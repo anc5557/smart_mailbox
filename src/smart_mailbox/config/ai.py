@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from typing import Dict, Any
+from ..config.logger import logger
 
 class AIConfig:
     """
@@ -37,8 +38,8 @@ class AIConfig:
                 updated_settings = self.default_settings.copy()
                 updated_settings.update(stored_settings)
                 return updated_settings
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"AI 설정 파일을 읽는 중 오류 발생: {e}. 기본 설정으로 복원합니다.")
+        except Exception as e:
+            logger.error(f"AI 설정 파일을 읽는 중 오류 발생: {e}. 기본 설정으로 복원합니다.")
             self._save_settings(self.default_settings)
             return self.default_settings
 

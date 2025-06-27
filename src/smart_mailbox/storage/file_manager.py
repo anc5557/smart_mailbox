@@ -1,6 +1,9 @@
 # src/smart_mailbox/storage/file_manager.py
 import os
+import hashlib
 from pathlib import Path
+from typing import Optional, Union
+from ..config.logger import logger
 
 class FileManager:
     """
@@ -25,9 +28,9 @@ class FileManager:
             self.base_dir.mkdir(exist_ok=True)
             self.emails_dir.mkdir(exist_ok=True)
             self.logs_dir.mkdir(exist_ok=True)
-            print(f"데이터 디렉토리 확인/생성 완료: {self.base_dir}")
-        except OSError as e:
-            print(f"오류: 데이터 디렉토리 생성에 실패했습니다. {e}")
+            logger.info(f"데이터 디렉토리 확인/생성 완료: {self.base_dir}")
+        except Exception as e:
+            logger.error(f"데이터 디렉토리 생성에 실패했습니다. {e}")
             # 여기서 적절한 예외 처리를 하거나 프로그램을 종료할 수 있습니다.
             raise
 
@@ -93,10 +96,10 @@ class FileManager:
         try:
             with open(target_path, 'wb') as f:
                 f.write(content)
-            print(f"이메일 파일 저장 완료: {target_path}")
+            logger.info(f"이메일 파일 저장 완료: {target_path}")
             return target_path
-        except IOError as e:
-            print(f"오류: 이메일 파일 저장에 실패했습니다. {e}")
+        except Exception as e:
+            logger.error(f"이메일 파일 저장에 실패했습니다. {e}")
             raise
 
 # 이 클래스는 주로 다른 모듈에서 인스턴스화하여 사용됩니다.

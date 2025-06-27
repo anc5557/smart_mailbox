@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 from PyQt6.QtGui import QFont, QIcon, QColor, QPalette
+from ..config.logger import logger
 
 
 class Sidebar(QWidget):
@@ -123,9 +124,9 @@ class Sidebar(QWidget):
             if tag_name:
                 # 동일한 태그를 다시 클릭한 경우 처리
                 if self.current_selected_tag == tag_name:
-                    print(f"🏷️ [DEBUG] 동일한 태그 재클릭: {tag_name}")
+                    logger.debug(f"동일한 태그 재클릭: {tag_name}")
                 else:
-                    print(f"🏷️ [DEBUG] 태그 선택: {self.current_selected_tag} → {tag_name}")
+                    logger.debug(f"태그 선택: {self.current_selected_tag} → {tag_name}")
                 
                 self.current_selected_tag = tag_name
                 self.tag_selected.emit(tag_name)

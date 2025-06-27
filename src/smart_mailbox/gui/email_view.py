@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import re
+from ..config.logger import logger
 
 
 class EmailDetailWidget(QWidget):
@@ -196,11 +197,11 @@ class EmailDetailWidget(QWidget):
         tags = email_data.get('tags', [])
         ai_processed = email_data.get('ai_processed', False)
         
-        print(f"🏷️ [DEBUG] 이메일 태그 정보:")
-        print(f"   - tags: {tags} (타입: {type(tags)})")
-        print(f"   - ai_processed: {ai_processed}")
-        print(f"   - 이메일 ID: {email_data.get('id', 'N/A')}")
-        print(f"   - 제목: {email_data.get('subject', 'N/A')[:50]}...")
+        logger.debug(f"이메일 태그 정보:")
+        logger.debug(f"   - tags: {tags} (타입: {type(tags)})")
+        logger.debug(f"   - ai_processed: {ai_processed}")
+        logger.debug(f"   - 이메일 ID: {email_data.get('id', 'N/A')}")
+        logger.debug(f"   - 제목: {email_data.get('subject', 'N/A')[:50]}...")
         
         if tags:
             # 태그가 리스트인지 확인
@@ -215,14 +216,14 @@ class EmailDetailWidget(QWidget):
             
             self.tags_label.setText(tags_text)
             self.tags_group.show()
-            print(f"✅ 태그 표시됨: {tags_text}")
+            logger.debug(f"태그 표시됨: {tags_text}")
         else:
             if ai_processed:
                 self.tags_label.setText("태그 없음")
-                print("✅ [DEBUG] AI 처리 완료 - 태그 없음으로 설정")
+                logger.debug("AI 처리 완료 - 태그 없음으로 설정")
             else:
                 self.tags_label.setText("분석 중...")
-                print("⏳ [DEBUG] AI 미처리 - 분석 중으로 설정")
+                logger.debug("AI 미처리 - 분석 중으로 설정")
             self.tags_group.show()  # 태그 섹션은 항상 표시
         
         # 첨부파일 정보 업데이트
@@ -245,7 +246,7 @@ class EmailDetailWidget(QWidget):
         
         # 이메일 상세 위젯을 명시적으로 표시
         self.show()
-        print(f"✅ [DEBUG] 이메일 상세 정보 표시 완료: {email_data.get('subject', 'N/A')[:30]}...")
+        logger.debug(f"이메일 상세 정보 표시 완료: {email_data.get('subject', 'N/A')[:30]}...")
     
     def _load_generated_replies(self, email_data: Dict[str, Any]):
         """이메일에 대한 생성된 답장을 로드합니다."""
@@ -263,7 +264,7 @@ class EmailDetailWidget(QWidget):
             replies = self.storage_manager.get_generated_replies_for_email(email_id)
             
             if replies:
-                print(f"💬 [DEBUG] {len(replies)}개의 답장 발견됨")
+                logger.debug(f"{len(replies)}개의 답장 발견됨")
                 
                 # 가장 최신 답장 표시
                 latest_reply = replies[0]
@@ -275,21 +276,21 @@ class EmailDetailWidget(QWidget):
                     display_text = f"생성 일시: {reply_date}\n\n{reply_content}"
                     self.reply_text.setPlainText(display_text)
                     self.reply_group.show()
-                    print(f"✅ [DEBUG] 답장 표시됨: {reply_content[:50]}...")
+                    logger.debug(f"답장 표시됨: {reply_content[:50]}...")
                 else:
                     self.reply_group.hide()
             else:
-                print(f"📭 [DEBUG] 답장 없음")
+                logger.debug("답장 없음")
                 self.reply_group.hide()
                 
         except Exception as e:
-            print(f"❌ 답장 로드 실패: {e}")
+            logger.error(f"답장 로드 실패: {e}")
             self.reply_group.hide()
     
     def on_reanalyze_clicked(self):
         """재분석 버튼 클릭 시 호출"""
         if self.current_email:
-            print(f"🔄 [DEBUG] 재분석 요청: {self.current_email.get('subject', 'N/A')[:50]}...")
+            logger.debug(f"재분석 요청: {self.current_email.get('subject', 'N/A')[:50]}...")
             self.reanalyze_requested.emit(self.current_email)
         
     def clear(self):
@@ -730,15 +731,15 @@ class EmailView(QWidget):
             self.email_table.clearSelection()
             self.email_detail.clear()
             
-            print(f"🔍 [DEBUG] 필터링 시작 - 태그: '{tag_name}'")
+            logger.debug(f"필터링 시작 - 태그: '{tag_name}'")
             
             # 스토리지에서 최신 이메일 목록 로드 (만약 storage_manager가 있다면)
             if self.storage_manager:
                 fresh_emails = self.storage_manager.get_emails(limit=1000)
-                print(f"🔍 [DEBUG] 스토리지에서 최신 이메일 로드: {len(fresh_emails)}개")
+                logger.debug(f"스토리지에서 최신 이메일 로드: {len(fresh_emails)}개")
                 emails_to_filter = fresh_emails
             else:
-                print(f"🔍 [DEBUG] current_emails 사용: {len(self.current_emails)}개")
+                logger.debug(f"current_emails 사용: {len(self.current_emails)}개")
                 emails_to_filter = self.current_emails
             
             # 해당 태그를 가진 이메일들만 필터링
@@ -748,7 +749,7 @@ class EmailView(QWidget):
                 email_id = email.get('id', 'N/A')[:8]
                 email_subject = email.get('subject', 'N/A')[:30]
                 
-                print(f"🔍 [DEBUG] 이메일 {i+1}: ID={email_id}, 제목='{email_subject}', 태그={email_tags} (타입: {type(email_tags)})")
+                logger.debug(f"이메일 {i+1}: ID={email_id}, 제목='{email_subject}', 태그={email_tags} (타입: {type(email_tags)})")
                 
                 # 태그 매칭 검사
                 is_matched = False
@@ -766,7 +767,7 @@ class EmailView(QWidget):
                     
                     # 공백 제거 후 비교
                     clean_tag_names = [name.strip() for name in tag_names if name and str(name).strip()]
-                    print(f"🔍 [DEBUG]   → 추출된 태그 이름들: {clean_tag_names}")
+                    logger.debug(f"   → 추출된 태그 이름들: {clean_tag_names}")
                     
                     if tag_name in clean_tag_names:
                         is_matched = True
@@ -774,17 +775,17 @@ class EmailView(QWidget):
                 elif isinstance(email_tags, str):
                     # 단일 태그 문자열인 경우
                     clean_tag = email_tags.strip()
-                    print(f"🔍 [DEBUG]   → 단일 태그 문자열: '{clean_tag}'")
+                    logger.debug(f"   → 단일 태그 문자열: '{clean_tag}'")
                     if tag_name == clean_tag:
                         is_matched = True
                 
                 if is_matched:
                     filtered_emails.append(email)
-                    print(f"✅ [DEBUG]   → 매칭됨! 필터링에 포함")
+                    logger.debug(f"   → 매칭됨! 필터링에 포함")
                 else:
-                    print(f"❌ [DEBUG]   → 매칭되지 않음")
+                    logger.debug(f"❌   → 매칭되지 않음")
                         
-            print(f"🏷️ [DEBUG] '{tag_name}' 태그 필터링: {len(filtered_emails)}개 이메일 발견")
+            logger.debug(f"'{tag_name}' 태그 필터링: {len(filtered_emails)}개 이메일 발견")
             self.list_title.setText(f"🏷️ {tag_name} 태그")
             self.update_email_list(filtered_emails)
             
@@ -794,7 +795,7 @@ class EmailView(QWidget):
             
             self.status_changed.emit(f"'{tag_name}' 태그: {len(filtered_emails)}개 이메일")
         except Exception as e:
-            print(f"❌ 태그 필터링 오류: {e}")
+            logger.error(f"태그 필터링 오류: {e}")
             import traceback
             traceback.print_exc()
             self.status_changed.emit(f"태그 필터링 실패: {e}")
@@ -890,5 +891,5 @@ class EmailView(QWidget):
     
     def on_reanalyze_requested(self, email_data: Dict[str, Any]):
         """재분석 요청 처리"""
-        print(f"📧 [DEBUG] EmailView에서 재분석 요청 수신: {email_data.get('subject', 'N/A')[:50]}...")
+        logger.debug(f"EmailView에서 재분석 요청 수신: {email_data.get('subject', 'N/A')[:50]}...")
         self.reanalyze_requested.emit(email_data) 

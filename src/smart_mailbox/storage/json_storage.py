@@ -4,13 +4,13 @@ JSON 파일 기반 데이터 저장소 관리
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
 from uuid import uuid4
-
-logger = logging.getLogger(__name__)
+from ..config.logger import logger, user_action_logger
 
 
 @dataclass
@@ -315,7 +315,8 @@ class JSONStorageManager:
                 }
                 new_tags.append(new_tag)
                 existing_tags.append(new_tag)
-                print(f"새 태그 추가: {korean_name}")
+                logger.info(f"새 태그 추가: {korean_name}")
+                user_action_logger.log_tag_change("ADD", korean_name)
         
         if new_tags:
             self._save_json(self.tags_file, existing_tags)
@@ -355,6 +356,8 @@ class JSONStorageManager:
             
             tags.append(new_tag)
             self._save_json(self.tags_file, tags)
+            logger.info(f"새 태그 추가: {name}")
+            user_action_logger.log_tag_change("ADD", name)
             return True
         except Exception as e:
             logger.error(f"커스텀 태그 생성 실패: {e}")

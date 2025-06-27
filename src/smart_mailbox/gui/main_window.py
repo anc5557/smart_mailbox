@@ -20,6 +20,7 @@ from ..storage import JSONStorageManager
 from ..storage.file_manager import FileManager
 from ..config import TagConfig, AIConfig
 from ..ai import OllamaClient, OllamaConfig, Tagger, ReplyGenerator
+from ..config.logger import logger, user_action_logger
 
 
 class EmailProcessingWorker(QThread):
@@ -78,7 +79,7 @@ class EmailProcessingWorker(QThread):
                         saved_path = self.file_manager.save_email_file(file_path, file_content)
                         email_data['file_path'] = str(saved_path)
                     except Exception as copy_error:
-                        print(f"파일 복사 실패: {file_path} - {copy_error}")
+                        logger.error(f"파일 복사 실패: {file_path} - {copy_error}")
                     
                     # AI 태깅 단계
                     self.progress_updated.emit(i, total_files, f"🤖 AI 분석 중: {filename}")
@@ -87,7 +88,10 @@ class EmailProcessingWorker(QThread):
                     if self.is_cancelled:
                         break
                     
-                    tagging_result = self.tagger.analyze_email(email_data)
+                    import time
+                    start_time = time.time()
+                    tagging_result = self.tagger.analyze_email_for_tags(email_data)
+                    processing_time = time.time() - start_time
                     
                     # 태깅 결과 처리
                     if tagging_result is not None:
@@ -96,14 +100,14 @@ class EmailProcessingWorker(QThread):
                         email_data['tag_confidence'] = 1.0 if tagging_result else 0.5
                         
                         if tagging_result:
-                            print(f"✅ AI 태깅 완료: {email_data['assigned_tags']}")
+                            logger.info(f"AI 태깅 완료: {email_data['assigned_tags']}")
                         else:
-                            print(f"✅ AI 분석 완료 - 해당 태그 없음: {file_path}")
+                            logger.info(f"AI 분석 완료 - 해당 태그 없음: {file_path}")
                     else:
                         email_data['ai_processed'] = False
                         email_data['assigned_tags'] = []
                         email_data['tag_confidence'] = 0.0
-                        print(f"🚨 AI 태깅 실패: {file_path}")
+                        logger.warning(f"AI 태깅 실패: {file_path}")
                     
                     # 데이터베이스 저장 단계
                     self.progress_updated.emit(i, total_files, f"💾 데이터베이스 저장 중: {filename}")
@@ -136,7 +140,15 @@ class EmailProcessingWorker(QThread):
                         if email_data['ai_processed'] and email_data.get('assigned_tags'):
                             assigned_tags = email_data['assigned_tags']
                             self.storage_manager.assign_tags_to_email(email_id, assigned_tags)
-                            print(f"💾 태그 저장 완료: {assigned_tags}")
+                            logger.info(f"태그 저장 완료: {assigned_tags}")
+                            
+                            # 사용자 행위 로그: 이메일 업로드 및 AI 분석 결과
+                            ai_result = {
+                                'tags': assigned_tags,
+                                'processing_time': processing_time,
+                                'model': self.tagger.ollama_client.ai_config.get_model()
+                            }
+                            user_action_logger.log_upload(file_path, email_data, ai_result)
                             
                             # 🆕 회신필요 태그 감지 시 자동 답장 생성
                             if '회신필요' in assigned_tags and self.reply_generator:
@@ -149,18 +161,43 @@ class EmailProcessingWorker(QThread):
                                         # 답장을 데이터베이스에 저장
                                         reply_saved = self._save_generated_reply(email_id, email_data, generated_reply)
                                         if reply_saved:
-                                            print(f"✅ 답장 생성 및 저장 완료: {email_data['subject']}")
+                                            logger.info(f"답장 생성 및 저장 완료: {email_data['subject']}")
+                                            user_action_logger.log_reply_generation(
+                                                email_id, 
+                                                email_data['subject'], 
+                                                True, 
+                                                len(generated_reply)
+                                            )
                                             self.reply_generated.emit(
                                                 email_id, 
                                                 email_data['subject'], 
                                                 generated_reply
                                             )
                                         else:
-                                            print(f"⚠️ 답장 생성됐지만 저장 실패: {email_data['subject']}")
+                                            logger.warning(f"답장 생성됐지만 저장 실패: {email_data['subject']}")
+                                            user_action_logger.log_reply_generation(
+                                                email_id, 
+                                                email_data['subject'], 
+                                                False
+                                            )
                                     else:
-                                        print(f"⚠️ 답장 생성 실패: {email_data['subject']}")
+                                        logger.warning(f"답장 생성 실패: {email_data['subject']}")
+                                        user_action_logger.log_reply_generation(
+                                            email_id, 
+                                            email_data['subject'], 
+                                            False
+                                        )
                                 except Exception as reply_error:
-                                    print(f"❌ 답장 생성 중 오류: {reply_error}")
+                                    logger.error(f"답장 생성 중 오류: {reply_error}")
+                        else:
+                            # AI 분석은 했지만 태그가 없는 경우에도 로그
+                            if email_data['ai_processed']:
+                                ai_result = {
+                                    'tags': [],
+                                    'processing_time': processing_time,
+                                    'model': self.tagger.ollama_client.ai_config.get_model()
+                                }
+                                user_action_logger.log_upload(file_path, email_data, ai_result)
                         
                         # 저장된 이메일 다시 로드
                         saved_email = self.storage_manager.get_email_by_id(email_id)
@@ -174,7 +211,7 @@ class EmailProcessingWorker(QThread):
                     except Exception as db_error:
                         error_msg = f"{file_path}: 데이터베이스 저장 실패 - {str(db_error)}"
                         errors.append(error_msg)
-                        print(f"DB 저장 오류: {error_msg}")
+                        logger.error(f"DB 저장 오류: {error_msg}")
                         processed_emails.append(email_data)
                         self.file_processed.emit(email_data)
                     
@@ -184,7 +221,7 @@ class EmailProcessingWorker(QThread):
                 except Exception as e:
                     error_msg = f"{file_path}: {str(e)}"
                     errors.append(error_msg)
-                    print(f"파일 처리 오류: {error_msg}")
+                    logger.error(f"파일 처리 오류: {error_msg}")
             
             # 처리 완료 신호
             if not self.is_cancelled:
@@ -202,7 +239,7 @@ class EmailProcessingWorker(QThread):
             return generated_reply or ""
             
         except Exception as e:
-            print(f"답장 생성 중 오류: {e}")
+            logger.error(f"답장 생성 중 오류: {e}")
             return ""
     
     def _save_generated_reply(self, original_email_id: str, original_email: Dict[str, Any], reply_content: str) -> bool:
@@ -240,7 +277,7 @@ class EmailProcessingWorker(QThread):
             return True
             
         except Exception as e:
-            print(f"답장 저장 중 오류: {e}")
+            logger.error(f"답장 저장 중 오류: {e}")
             return False
     
     def cancel(self):
@@ -265,7 +302,7 @@ class MainWindow(QMainWindow):
         self.load_initial_data()
         
         # 초기 테마는 이미 setup_ui에서 적용됨
-        print(f"🎨 초기 테마 설정 완료")
+        logger.info("초기 테마 설정 완료")
         
         # Ollama 연결 상태 확인 및 표시
         self.check_initial_ollama_status()
@@ -433,7 +470,7 @@ class MainWindow(QMainWindow):
             
             # 항상 저장소에서 최신 이메일을 가져와서 정확한 카운트 계산
             emails = self.storage_manager.get_emails(limit=1000)
-            print(f"📊 [DEBUG] 태그 카운트 계산용 이메일 로드: {len(emails)}개")
+            logger.debug(f"태그 카운트 계산용 이메일 로드: {len(emails)}개")
             
             # 태그별 이메일 카운트 계산 (개선된 로직)
             tag_counts = {}
@@ -444,7 +481,7 @@ class MainWindow(QMainWindow):
                 email_tags = email.get('tags', [])
                 
                 if i < 3:  # 처음 3개만 디버깅 출력
-                    print(f"📊 [DEBUG] 이메일 {i+1} (ID: {email_id}): tags={email_tags} (타입: {type(email_tags)})")
+                    logger.debug(f"이메일 {i+1} (ID: {email_id}): tags={email_tags} (타입: {type(email_tags)})")
                 
                 # 태그가 리스트인지 확인하고 처리
                 if isinstance(email_tags, list):
@@ -466,7 +503,7 @@ class MainWindow(QMainWindow):
                     # 단일 태그 문자열인 경우
                     tag_counts[email_tags] = tag_counts.get(email_tags, 0) + 1
             
-            print(f"📊 [DEBUG] 계산된 태그 카운트: {tag_counts}")
+            logger.debug(f"계산된 태그 카운트: {tag_counts}")
             
             # 태그 데이터 구성
             tags_data = []
@@ -484,7 +521,7 @@ class MainWindow(QMainWindow):
             tags_data.sort(key=lambda x: (-x['count'], x['name']))
             
             self.sidebar.update_tags(tags_data)
-            print(f"📊 태그 로드 완료: {[(t['name'], t['count']) for t in tags_data[:5]]}{'...' if len(tags_data) > 5 else ''}")
+            logger.info(f"태그 로드 완료: {[(t['name'], t['count']) for t in tags_data[:5]]}{'...' if len(tags_data) > 5 else ''}")
         except Exception as e:
             self.statusBar().showMessage(f"태그 로드 실패: {e}")
             import traceback
@@ -496,12 +533,12 @@ class MainWindow(QMainWindow):
             emails_data = self.storage_manager.get_emails(limit=100)  # 이미 딕셔너리 형태로 반환됨
             
             # 디버깅: 로드된 이메일들의 ai_processed 상태 확인
-            print(f"📧 [DEBUG] 데이터베이스에서 {len(emails_data)}개 이메일 로드됨")
+            logger.debug(f"데이터베이스에서 {len(emails_data)}개 이메일 로드됨")
             for i, email in enumerate(emails_data[:3]):  # 처음 3개만 출력
-                print(f"   {i+1}. ID: {email.get('id', 'N/A')[:8]}...")
-                print(f"      제목: {email.get('subject', 'N/A')[:30]}...")
-                print(f"      ai_processed: {email.get('ai_processed', 'N/A')}")
-                print(f"      tags: {email.get('tags', [])}")
+                logger.debug(f"   {i+1}. ID: {email.get('id', 'N/A')[:8]}...")
+                logger.debug(f"      제목: {email.get('subject', 'N/A')[:30]}...")
+                logger.debug(f"      ai_processed: {email.get('ai_processed', 'N/A')}")
+                logger.debug(f"      tags: {email.get('tags', [])}")
             
             self.email_view.update_email_list(emails_data)
             self.statusBar().showMessage(f"{len(emails_data)}개 이메일 로드됨")
@@ -514,14 +551,14 @@ class MainWindow(QMainWindow):
     def filter_by_tag(self, tag_name: str):
         """태그로 필터링"""
         try:
-            print(f"🏷️ [DEBUG] 메인 윈도우에서 태그 필터링 요청: {tag_name}")
+            logger.info(f"메인 윈도우에서 태그 필터링 요청: {tag_name}")
             
             # 현재 필터 상태 업데이트
             self.current_filter = {'tag': tag_name}
             
             # 최신 이메일 목록을 가져와서 필터링
             all_emails = self.storage_manager.get_emails(limit=1000)
-            print(f"🏷️ [DEBUG] 필터링용 전체 이메일 로드: {len(all_emails)}개")
+            logger.debug(f"필터링용 전체 이메일 로드: {len(all_emails)}개")
             
             # 이메일 뷰의 current_emails를 최신 상태로 업데이트
             self.email_view.current_emails = all_emails
@@ -533,9 +570,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"'{tag_name}' 태그로 필터링")
             
         except Exception as e:
-            print(f"❌ 태그 필터링 요청 실패: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"태그 필터링 요청 실패: {e}")
             self.statusBar().showMessage(f"태그 필터링 실패: {e}")
 
     def on_search_text_changed(self, text: str):
@@ -581,7 +616,6 @@ class MainWindow(QMainWindow):
                 
             except Exception as e:
                 self.statusBar().showMessage(f"검색 중 오류 발생: {str(e)}", 5000)
-                print(f"검색 오류: {e}")
         else:
             # 검색어가 없으면 전체 이메일 표시
             self.current_filter = {}
@@ -747,20 +781,26 @@ class MainWindow(QMainWindow):
             old_theme = self.settings.value("general/theme", "auto", type=str)
             new_theme = new_settings.get('general', {}).get('theme', 'auto')
             
-            print(f"🎨 테마 변경: {old_theme} → {new_theme}")  # 디버깅용
+            logger.debug(f"테마 변경: {old_theme} → {new_theme}")  # 디버깅용
             
             # 나머지 모든 설정 저장
             for section, section_settings in new_settings.items():
                 for key, value in section_settings.items():
+                    # 이전 값 가져오기
+                    old_value = self.settings.value(f"{section}/{key}", "", type=str)
                     self.settings.setValue(f"{section}/{key}", value)
-                    print(f"💾 설정 저장: {section}/{key} = {value}")  # 디버깅용
+                    logger.debug(f"설정 저장: {section}/{key} = {value}")
+                    
+                    # 설정 변경 사용자 행위 로그
+                    if str(old_value) != str(value):
+                        user_action_logger.log_settings_change(f"{section}/{key}", str(old_value), str(value))
             
             # 설정 즉시 반영 (중요!)
             self.settings.sync()
             
             # 테마가 변경되었으면 테마 적용 (qdarktheme가 자동으로 모든 위젯 업데이트)
             if old_theme != new_theme:
-                print(f"✅ 테마 변경 시그널 발송: {new_theme}")  # 디버깅용
+                logger.debug(f"✅ 테마 변경 시그널 발송: {new_theme}")  # 디버깅용
                 self.theme_changed.emit(new_theme)
             
             # Ollama 설정이 변경되었으면 재로드
@@ -768,7 +808,7 @@ class MainWindow(QMainWindow):
                 
             self.statusBar().showMessage("설정이 저장되었습니다", 3000)
         except Exception as e:
-            print(f"❌ 설정 저장 오류: {e}")  # 디버깅용
+            logger.error(f"❌ 설정 저장 오류: {e}")  # 디버깅용
             QMessageBox.critical(self, "설정 저장 실패", f"설정 저장 중 오류가 발생했습니다: {e}")
             self.statusBar().showMessage("설정 저장 실패", 3000)
 
@@ -822,38 +862,51 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"❌ Ollama 연결 오류: {str(e)[:50]}...", 10000)
     
     def delete_emails(self, email_ids: List[int]):
-        """이메일 삭제 처리"""
+        """선택된 이메일들을 삭제합니다."""
         try:
-            if not email_ids:
-                return
+            # 사용자에게 확인 요청
+            confirm_message = f"{len(email_ids)}개의 이메일을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
+            reply = QMessageBox.question(
+                self,
+                "이메일 삭제 확인",
+                confirm_message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
             
-            # 데이터베이스에서 삭제
-            result = self.storage_manager.delete_emails([str(email_id) for email_id in email_ids])
-            
-            success_count = result.get('success_count', 0)
-            failed_count = result.get('failed_count', 0)
-            
-            if success_count > 0:
-                # 이메일 목록과 태그 새로고침
-                self.load_emails()
-                self.load_tags()  # 태그 카운트 업데이트
+            if reply == QMessageBox.StandardButton.Yes:
+                deleted_count = 0
+                for email_id in email_ids:
+                    # 삭제 전에 이메일 정보 가져오기 (로그용)
+                    email_data = self.storage_manager.get_email_by_id(str(email_id))
+                    email_subject = email_data.get('subject', 'N/A') if email_data else 'N/A'
+                    
+                    if self.storage_manager.delete_email(str(email_id)):
+                        deleted_count += 1
+                        # 사용자 행위 로그
+                        user_action_logger.log_delete(str(email_id), email_subject)
                 
-                if failed_count > 0:
-                    QMessageBox.warning(
-                        self, 
-                        "부분 삭제 완료",
-                        f"총 {len(email_ids)}개 중 {success_count}개 삭제 완료, {failed_count}개 실패"
-                    )
-                    self.statusBar().showMessage(f"{success_count}개 이메일 삭제됨 ({failed_count}개 실패)")
+                if deleted_count > 0:
+                    # 이메일 목록과 태그 새로고침
+                    self.load_emails()
+                    self.load_tags()  # 태그 카운트 업데이트
+                    
+                    if deleted_count > 0:
+                        QMessageBox.information(
+                            self, 
+                            "삭제 완료",
+                            f"{deleted_count}개 이메일이 성공적으로 삭제되었습니다."
+                        )
+                        self.statusBar().showMessage(f"{deleted_count}개 이메일 삭제됨")
                 else:
-                    self.statusBar().showMessage(f"{success_count}개 이메일 삭제됨")
+                    QMessageBox.information(
+                        self, 
+                        "삭제 완료",
+                        "선택한 이메일을 삭제할 수 없습니다."
+                    )
+                    self.statusBar().showMessage("이메일 삭제 실패")
             else:
-                QMessageBox.critical(
-                    self, 
-                    "삭제 실패",
-                    "선택한 이메일을 삭제할 수 없습니다."
-                )
-                self.statusBar().showMessage("이메일 삭제 실패")
+                self.statusBar().showMessage("이메일 삭제 취소됨")
                 
         except Exception as e:
             QMessageBox.critical(
@@ -879,7 +932,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"재분석 중... '{email_data.get('subject', 'N/A')[:30]}...'")
             
             # AI 태깅 수행
-            tagging_result = self.tagger.analyze_email(email_data)
+            tagging_result = self.tagger.analyze_email_for_tags(email_data)
             
             # 태깅 결과 처리
             if tagging_result is not None:
@@ -889,10 +942,10 @@ class MainWindow(QMainWindow):
                 tag_confidence = 1.0 if tagging_result else 0.5
                 
                 if tagging_result:
-                    print(f"✅ 재분석 완료: {assigned_tags}")
+                    logger.info(f"AI 태깅 완료: {assigned_tags}")
                     message = f"재분석 완료: {len(assigned_tags)}개 태그 할당됨"
                 else:
-                    print(f"✅ 재분석 완료 - 해당 태그 없음")
+                    logger.info(f"AI 분석 완료 - 해당 태그 없음: {email_data.get('subject', 'N/A')}")
                     message = "재분석 완료: 해당하는 태그 없음"
             else:
                 # AI 분석 실패
@@ -900,7 +953,7 @@ class MainWindow(QMainWindow):
                 assigned_tags = []
                 tag_confidence = 0.0
                 message = "재분석 실패: AI 오류"
-                print(f"🚨 재분석 실패: {email_data.get('subject', 'N/A')}")
+                logger.warning(f"AI 태깅 실패: {email_data.get('subject', 'N/A')}")
             
             # 데이터베이스 업데이트
             emails = self.storage_manager.get_emails(limit=1000)
@@ -923,7 +976,7 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             error_msg = f"재분석 중 오류 발생: {str(e)}"
-            print(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             QMessageBox.critical(self, "재분석 오류", error_msg)
             self.statusBar().showMessage("재분석 실패", 5000)
 
@@ -1006,8 +1059,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"답장 생성 완료: {subject}")
         
         # 알림 메시지 (선택적)
-        print(f"💬 답장 생성됨 - 제목: {subject}")
-        print(f"📝 답장 내용 미리보기: {reply_content[:100]}...")
+        logger.debug(f"💬 답장 생성됨 - 제목: {subject}")
+        logger.debug(f"📝 답장 내용 미리보기: {reply_content[:100]}...")
         
         # 사용자에게 답장 생성 완료 알림
         reply_preview = reply_content[:200] + "..." if len(reply_content) > 200 else reply_content
@@ -1026,7 +1079,7 @@ class MainWindow(QMainWindow):
     def show_all_emails(self):
         """전체 이메일 표시 (홈 버튼용)"""
         try:
-            print("🏠 [DEBUG] 전체 이메일 로드 요청")
+            logger.debug("전체 이메일 로드 요청")
             
             # 필터 상태 초기화
             self.current_filter = {}
@@ -1036,7 +1089,7 @@ class MainWindow(QMainWindow):
             
             # 전체 이메일 로드
             all_emails = self.storage_manager.get_emails(limit=1000)
-            print(f"🏠 [DEBUG] 전체 이메일 로드됨: {len(all_emails)}개")
+            logger.debug(f"전체 이메일 로드됨: {len(all_emails)}개")
             
             # 이메일 뷰에 전체 이메일 표시
             self.email_view.current_emails = all_emails
@@ -1053,7 +1106,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"전체 이메일 로드됨: {len(all_emails)}개")
             
         except Exception as e:
-            print(f"❌ 전체 이메일 로드 실패: {e}")
+            logger.error(f"❌ 전체 이메일 로드 실패: {e}")
             import traceback
             traceback.print_exc()
             self.statusBar().showMessage(f"전체 이메일 로드 실패: {e}")
