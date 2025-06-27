@@ -15,11 +15,9 @@ dependencies = [
     # GUI 프레임워크
     "PyQt6>=6.4.0",
     "PyQt6-tools>=6.4.0",
-    # 내장 데이터베이스 (SQLite 기본 포함, ORM용)
-    "sqlalchemy>=2.0.0",
-    # HTTP 클라이언트 (Ollama 연결용)
-    "httpx>=0.26.0",
-    "requests>=2.31.0",
+
+    # Ollama 연결용
+    "ollama>=0.5.1",
     # 유틸리티
     "pydantic>=2.5.0",
     "python-dotenv>=1.0.0",
@@ -28,6 +26,7 @@ dependencies = [
     # 암호화
     "cryptography>=41.0.0",
     "pyqtdarktheme>=2.1.0",
+    "pathvalidate>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +38,7 @@ dev = [
     "flake8>=6.1.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
+    "isort>=5.0",
 ]
 
 build = [
@@ -48,18 +48,18 @@ build = [
 ]
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project.scripts]
 smart-mailbox = "smart_mailbox.main:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/smart_mailbox"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
-line-length = 88
-target-version = ['py311']
+line-length = 120
+target-version = ['py39']
 
 [tool.mypy]
 python_version = "3.11"

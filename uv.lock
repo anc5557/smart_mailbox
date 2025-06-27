@@ -906,6 +906,15 @@ wheels = [
 ]
 
 [[package]]
+name = "isort"
+version = "6.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/21/1e2a441f74a653a144224d7d21afe8f4169e6c7c20bb13aec3a2dc3815e0/isort-6.0.1.tar.gz", hash = "sha256:1cb5df28dfbc742e490c5e41bad6da41b805b0a8be7bc93cd0fb2a8a890ac450", size = 821955, upload-time = "2025-02-26T21:13:16.955Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/11/114d0a5f4dabbdcedc1125dee0888514c3c3b16d3e9facad87ed96fad97c/isort-6.0.1-py3-none-any.whl", hash = "sha256:2dc5d7f65c9678d94c88dfc29161a320eec67328bc97aad576874cb4be1e9615", size = 94186, upload-time = "2025-02-26T21:13:14.911Z" },
+]
+
+[[package]]
 name = "jsonpatch"
 version = "1.33"
 source = { registry = "https://pypi.org/simple" }
@@ -1340,6 +1349,19 @@ wheels = [
 ]
 
 [[package]]
+name = "ollama"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/96/c7fe0d2d1b3053be614822a7b722c7465161b3672ce90df71515137580a0/ollama-0.5.1.tar.gz", hash = "sha256:5a799e4dc4e7af638b11e3ae588ab17623ee019e496caaf4323efbaa8feeff93", size = 41112, upload-time = "2025-05-30T21:32:48.679Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/76/3f96c8cdbf3955d7a73ee94ce3e0db0755d6de1e0098a70275940d1aff2f/ollama-0.5.1-py3-none-any.whl", hash = "sha256:4c8839f35bc173c7057b1eb2cbe7f498c1a7e134eafc9192824c8aecb3617506", size = 13369, upload-time = "2025-05-30T21:32:47.429Z" },
+]
+
+[[package]]
 name = "orjson"
 version = "3.10.18"
 source = { registry = "https://pypi.org/simple" }
@@ -1454,6 +1476,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ca/bc/f35b8446f4531a7cb215605d100cd88b7ac6f44ab3fc94870c120ab3adbf/pathspec-0.12.1.tar.gz", hash = "sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712", size = 51043, upload-time = "2023-12-10T22:30:45Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cc/20/ff623b09d963f88bfde16306a54e12ee5ea43e9b597108672ff3a408aad6/pathspec-0.12.1-py3-none-any.whl", hash = "sha256:a0d503e138a4c123b27490a4f7beda6a01c6f288df0e4a8b79c7eb0dc7b4cc08", size = 31191, upload-time = "2023-12-10T22:30:43.14Z" },
+]
+
+[[package]]
+name = "pathvalidate"
+version = "3.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/2a/52a8da6fe965dea6192eb716b357558e103aea0a1e9a8352ad575a8406ca/pathvalidate-3.3.1.tar.gz", hash = "sha256:b18c07212bfead624345bb8e1d6141cdcf15a39736994ea0b94035ad2b1ba177", size = 63262, upload-time = "2025-06-15T09:07:20.736Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/70/875f4a23bfc4731703a5835487d0d2fb999031bd415e7d17c0ae615c18b7/pathvalidate-3.3.1-py3-none-any.whl", hash = "sha256:5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f", size = 24305, upload-time = "2025-06-15T09:07:19.117Z" },
 ]
 
 [[package]]
@@ -2026,18 +2057,17 @@ dependencies = [
     { name = "chardet" },
     { name = "cryptography" },
     { name = "email-validator" },
-    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-community" },
     { name = "langgraph" },
+    { name = "ollama" },
+    { name = "pathvalidate" },
     { name = "pydantic" },
     { name = "pyqt6" },
     { name = "pyqt6-tools" },
     { name = "pyqtdarktheme" },
     { name = "python-dotenv" },
-    { name = "requests" },
     { name = "rich" },
-    { name = "sqlalchemy" },
     { name = "typer" },
 ]
 
@@ -2050,6 +2080,7 @@ build = [
 dev = [
     { name = "black" },
     { name = "flake8" },
+    { name = "isort" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -2066,11 +2097,13 @@ requires-dist = [
     { name = "cx-freeze", marker = "extra == 'build'", specifier = ">=6.15.0" },
     { name = "email-validator", specifier = ">=2.1.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.1.0" },
-    { name = "httpx", specifier = ">=0.26.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "langchain", specifier = ">=0.1.0" },
     { name = "langchain-community", specifier = ">=0.0.10" },
     { name = "langgraph", specifier = ">=0.0.30" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
+    { name = "ollama", specifier = ">=0.5.1" },
+    { name = "pathvalidate", specifier = ">=3.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "pyinstaller", marker = "extra == 'build'", specifier = ">=6.3.0" },
@@ -2081,9 +2114,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.12.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "requests", specifier = ">=2.31.0" },
     { name = "rich", specifier = ">=13.7.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.0" },
     { name = "typer", specifier = ">=0.9.0" },
 ]
 provides-extras = ["dev", "build"]
