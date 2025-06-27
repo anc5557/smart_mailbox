@@ -3,21 +3,173 @@ AI Smart Mailbox 메인 윈도우
 """
 import sys
 from typing import Dict, Any, List
+from datetime import datetime
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QSplitter, QMenuBar, QStatusBar, QLineEdit, QLabel,
-    QFileDialog, QMessageBox, QApplication
+    QFileDialog, QMessageBox, QApplication, QPushButton
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QTimer, QThread
 from PyQt6.QtGui import QAction
 
 from .sidebar import Sidebar
 from .email_view import EmailView
 from .settings import SettingsDialog
-from ..storage import DatabaseManager
+from ..storage import JSONStorageManager
 from ..storage.file_manager import FileManager
 from ..config import TagConfig, AIConfig
 from ..ai import OllamaClient, OllamaConfig, Tagger, ReplyGenerator
+
+
+class EmailProcessingWorker(QThread):
+    """이메일 처리를 백그라운드에서 수행하는 워커 스레드"""
+    
+    # 시그널 정의
+    progress_updated = pyqtSignal(int, int, str)  # current, total, status_message
+    status_updated = pyqtSignal(str)  # status message
+    file_processed = pyqtSignal(dict)  # processed email data
+    processing_completed = pyqtSignal(list, list)  # processed_emails, errors
+    processing_error = pyqtSignal(str)  # error message
+    
+    def __init__(self, file_paths, components):
+        super().__init__()
+        self.file_paths = file_paths
+        self.file_manager = components['file_manager']
+        self.storage_manager = components['storage_manager']
+        self.tagger = components['tagger']
+        self.is_cancelled = False
+    
+    def run(self):
+        """백그라운드에서 이메일 처리 실행"""
+        try:
+            from ..email.parser import EmailParser
+            
+            parser = EmailParser()
+            processed_emails = []
+            errors = []
+            total_files = len(self.file_paths)
+            
+            # 시작 신호
+            self.progress_updated.emit(0, total_files, "📂 파일 처리를 시작합니다...")
+            
+            for i, file_path in enumerate(self.file_paths):
+                if self.is_cancelled:
+                    break
+                    
+                try:
+                    import os
+                    filename = os.path.basename(file_path)
+                    
+                    # 파일 파싱 단계
+                    self.progress_updated.emit(i, total_files, f"📧 파싱 중: {filename}")
+                    self.status_updated.emit(f"파일 파싱 중... ({i+1}/{total_files}): {file_path}")
+                    
+                    # 이메일 파싱
+                    email_data = parser.parse_eml_file(file_path)
+                    
+                    # 이메일 파일을 애플리케이션 데이터 디렉토리로 복사
+                    try:
+                        with open(file_path, 'rb') as f:
+                            file_content = f.read()
+                        
+                        saved_path = self.file_manager.save_email_file(file_path, file_content)
+                        email_data['file_path'] = str(saved_path)
+                    except Exception as copy_error:
+                        print(f"파일 복사 실패: {file_path} - {copy_error}")
+                    
+                    # AI 태깅 단계
+                    self.progress_updated.emit(i, total_files, f"🤖 AI 분석 중: {filename}")
+                    self.status_updated.emit(f"AI 태깅 중... ({i+1}/{total_files})")
+                    
+                    if self.is_cancelled:
+                        break
+                    
+                    tagging_result = self.tagger.analyze_email(email_data)
+                    
+                    # 태깅 결과 처리
+                    if tagging_result is not None:
+                        email_data['ai_processed'] = True
+                        email_data['assigned_tags'] = tagging_result if tagging_result else []
+                        email_data['tag_confidence'] = 1.0 if tagging_result else 0.5
+                        
+                        if tagging_result:
+                            print(f"✅ AI 태깅 완료: {email_data['assigned_tags']}")
+                        else:
+                            print(f"✅ AI 분석 완료 - 해당 태그 없음: {file_path}")
+                    else:
+                        email_data['ai_processed'] = False
+                        email_data['assigned_tags'] = []
+                        email_data['tag_confidence'] = 0.0
+                        print(f"🚨 AI 태깅 실패: {file_path}")
+                    
+                    # 데이터베이스 저장 단계
+                    self.progress_updated.emit(i, total_files, f"💾 데이터베이스 저장 중: {filename}")
+                    
+                    if self.is_cancelled:
+                        break
+                    
+                    try:
+                        save_data = {
+                            'subject': email_data['subject'],
+                            'sender': email_data['sender'],
+                            'sender_name': email_data['sender_name'],
+                            'recipient': email_data['recipient'],
+                            'recipient_name': email_data['recipient_name'],
+                            'date_sent': email_data['date_sent'].isoformat() if isinstance(email_data['date_sent'], datetime) else email_data['date_sent'],
+                            'date_received': email_data['date_received'].isoformat() if isinstance(email_data['date_received'], datetime) else email_data['date_received'],
+                            'body_text': email_data['body_text'],
+                            'body_html': email_data['body_html'],
+                            'file_path': email_data['file_path'],
+                            'file_size': email_data['file_size'],
+                            'file_hash': email_data['file_hash'],
+                            'ai_processed': email_data['ai_processed'],
+                            'has_attachments': email_data['has_attachments'],
+                            'attachment_count': email_data['attachment_count'],
+                            'attachment_info': email_data['attachment_info']
+                        }
+                        email_id = self.storage_manager.save_email(save_data)
+                        
+                        # 태그 할당
+                        if email_data['ai_processed'] and email_data.get('assigned_tags'):
+                            assigned_tags = email_data['assigned_tags']
+                            self.storage_manager.assign_tags_to_email(email_id, assigned_tags)
+                            print(f"💾 태그 저장 완료: {assigned_tags}")
+                        
+                        # 저장된 이메일 다시 로드
+                        saved_email = self.storage_manager.get_email_by_id(email_id)
+                        if saved_email:
+                            processed_emails.append(saved_email)
+                            self.file_processed.emit(saved_email)
+                        else:
+                            processed_emails.append(email_data)
+                            self.file_processed.emit(email_data)
+                            
+                    except Exception as db_error:
+                        error_msg = f"{file_path}: 데이터베이스 저장 실패 - {str(db_error)}"
+                        errors.append(error_msg)
+                        print(f"DB 저장 오류: {error_msg}")
+                        processed_emails.append(email_data)
+                        self.file_processed.emit(email_data)
+                    
+                    # 완료 상태 업데이트
+                    self.progress_updated.emit(i + 1, total_files, f"✅ 완료: {filename}")
+                    
+                except Exception as e:
+                    error_msg = f"{file_path}: {str(e)}"
+                    errors.append(error_msg)
+                    print(f"파일 처리 오류: {error_msg}")
+            
+            # 처리 완료 신호
+            if not self.is_cancelled:
+                self.progress_updated.emit(total_files, total_files, "🎉 모든 파일 처리 완료!")
+                self.processing_completed.emit(processed_emails, errors)
+            
+        except Exception as e:
+            self.processing_error.emit(str(e))
+    
+    def cancel(self):
+        """처리 취소"""
+        self.is_cancelled = True
 
 
 class MainWindow(QMainWindow):
@@ -28,6 +180,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.current_filter = {}
         self.settings = QSettings()
+        self.current_worker = None  # 현재 실행 중인 워커 스레드 추적
         self.init_core_components()
         self.setup_ui()
         self.setup_menu()
@@ -47,7 +200,7 @@ class MainWindow(QMainWindow):
         """핵심 백엔드 컴포넌트 초기화"""
         try:
             self.file_manager = FileManager()
-            self.db_manager = DatabaseManager(str(self.file_manager.get_db_path()))
+            self.storage_manager = JSONStorageManager(self.file_manager.get_data_dir())
             self.tag_config = TagConfig(self.file_manager.get_tags_config_path())
             self.ai_config = AIConfig(self.file_manager.get_config_path())
             
@@ -60,7 +213,7 @@ class MainWindow(QMainWindow):
                 timeout=ollama_settings.get("timeout", 60)
             )
             self.ollama_client = OllamaClient(ollama_config, self.ai_config) 
-            self.tagger = Tagger(self.ollama_client, self.tag_config)
+            self.tagger = Tagger(self.ollama_client, self.storage_manager)
             self.reply_generator = ReplyGenerator(self.ollama_client)
         except Exception as e:
             QMessageBox.critical(self, "초기화 오류", f"애플리케이션 핵심 컴포넌트 초기화 실패: {e}")
@@ -105,7 +258,7 @@ class MainWindow(QMainWindow):
         
         self.search_bar = QLineEdit()
         self.search_bar.setObjectName("searchBar")
-        self.search_bar.setPlaceholderText("이메일 제목, 내용, 발신자 검색...")
+        self.search_bar.setPlaceholderText("이메일 제목, 내용, 발신자, 수신자, 태그 검색...")
         self.search_bar.setFixedHeight(32)  # 고정 높이로 더 줄임
         
         # 검색바 스타일링
@@ -125,6 +278,53 @@ class MainWindow(QMainWindow):
         """)
         
         search_layout.addWidget(self.search_bar)
+        
+        # 검색 버튼 추가
+        self.search_button = QPushButton("검색")
+        self.search_button.setFixedHeight(32)
+        self.search_button.setFixedWidth(60)
+        self.search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #106ebe;
+            }
+            QPushButton:pressed {
+                background-color: #005a9e;
+            }
+        """)
+        self.search_button.clicked.connect(self.trigger_search)
+        search_layout.addWidget(self.search_button)
+        
+        # 검색 초기화 버튼 추가
+        self.clear_search_button = QPushButton("✕")
+        self.clear_search_button.setFixedHeight(32)
+        self.clear_search_button.setFixedWidth(32)
+        self.clear_search_button.setToolTip("검색 초기화")
+        self.clear_search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+        """)
+        self.clear_search_button.clicked.connect(self.clear_search)
+        search_layout.addWidget(self.clear_search_button)
         
         # 검색 위젯 전체 스타일링 - 헤더 느낌으로
         search_widget.setStyleSheet("""
@@ -152,8 +352,8 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar()
         splitter.addWidget(self.sidebar)
         
-        # 이메일 뷰
-        self.email_view = EmailView()
+        # 이메일 뷰 (storage_manager 전달)
+        self.email_view = EmailView(self.storage_manager)
         splitter.addWidget(self.email_view)
         
         # 사이즈 비율: 사이드바 20%, 이메일 뷰 80%
@@ -185,16 +385,21 @@ class MainWindow(QMainWindow):
     def connect_signals(self):
         self.sidebar.tag_selected.connect(self.filter_by_tag)
         self.sidebar.home_selected.connect(self.email_view.show_home_view)
+        self.sidebar.refresh_requested.connect(self.refresh_all_data)  # 새로고침 버튼 연결
         self.email_view.status_changed.connect(self.statusBar().showMessage)
         
         # 이메일 뷰의 파일 처리 시그널 연결
         self.email_view.files_processing.connect(self.process_email_files)
         
-        # 검색창 입력 시 0.5초 후 자동 검색
-        self.search_timer = QTimer()
-        self.search_timer.setSingleShot(True)
-        self.search_timer.timeout.connect(self.trigger_search)
-        self.search_bar.textChanged.connect(lambda: self.search_timer.start(500))
+        # 이메일 삭제 시그널 연결
+        self.email_view.emails_deleted.connect(self.delete_emails)
+        
+        # 이메일 재분석 시그널 연결  
+        self.email_view.reanalyze_requested.connect(self.reanalyze_email)
+        
+        # 검색바 시그널 연결 추가
+        self.search_bar.textChanged.connect(self.on_search_text_changed)
+        self.search_bar.returnPressed.connect(self.trigger_search)
 
     def load_initial_data(self):
         self.load_tags()
@@ -202,38 +407,162 @@ class MainWindow(QMainWindow):
 
     def load_tags(self):
         try:
-            all_tags = self.tag_config.get_all_tags()
-            # TODO: DB에서 태그별 카운트 가져오는 로직 개선
-            tags_data = [{'name': name, 'display_name': name, 'color': details['color'], 'count': 0} for name, details in all_tags.items()]
+            # 저장소에서 실제 태그와 이메일 카운트 가져오기
+            all_tags = self.storage_manager.get_all_tags()
+            
+            # 현재 로드된 이메일이 있으면 그것을 사용, 없으면 저장소에서 가져오기
+            if hasattr(self, 'email_view') and hasattr(self.email_view, 'current_emails') and self.email_view.current_emails:
+                emails = self.email_view.current_emails
+                print(f"📊 [DEBUG] 캐시된 이메일 사용: {len(emails)}개")
+            else:
+                emails = self.storage_manager.get_emails(limit=1000)
+                print(f"📊 [DEBUG] 저장소에서 이메일 로드: {len(emails)}개")
+            
+            # 태그별 이메일 카운트 계산 (개선된 로직)
+            tag_counts = {}
+            for email in emails:
+                email_tags = email.get('tags', [])
+                
+                # 태그가 리스트인지 확인하고 처리
+                if isinstance(email_tags, list):
+                    for tag in email_tags:
+                        if isinstance(tag, dict):
+                            tag_name = tag.get('name', '')
+                        else:
+                            tag_name = str(tag)
+                        
+                        if tag_name:  # 빈 태그 이름 제외
+                            tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+                elif isinstance(email_tags, str) and email_tags:
+                    # 단일 태그 문자열인 경우
+                    tag_counts[email_tags] = tag_counts.get(email_tags, 0) + 1
+            
+            # 태그 데이터 구성
+            tags_data = []
+            for tag in all_tags:
+                tag_name = tag.get('name', '')
+                count = tag_counts.get(tag_name, 0)
+                tags_data.append({
+                    'name': tag_name,
+                    'display_name': tag.get('display_name', tag_name),
+                    'color': tag.get('color', '#007ACC'),
+                    'count': count
+                })
+            
+            # 카운트가 0인 태그도 표시하되, 실제 사용 중인 태그는 위로 정렬
+            tags_data.sort(key=lambda x: (-x['count'], x['name']))
+            
             self.sidebar.update_tags(tags_data)
+            print(f"📊 태그 로드 완료: {[(t['name'], t['count']) for t in tags_data[:5]]}{'...' if len(tags_data) > 5 else ''}")
         except Exception as e:
             self.statusBar().showMessage(f"태그 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
 
     def load_emails(self):
+        """데이터베이스에서 이메일 목록 로드"""
         try:
-            # TODO: 실제 데이터베이스에서 이메일 로드
-            emails_data = []  # 임시로 빈 목록
+            emails_data = self.storage_manager.get_emails(limit=100)  # 이미 딕셔너리 형태로 반환됨
+            
+            # 디버깅: 로드된 이메일들의 ai_processed 상태 확인
+            print(f"📧 [DEBUG] 데이터베이스에서 {len(emails_data)}개 이메일 로드됨")
+            for i, email in enumerate(emails_data[:3]):  # 처음 3개만 출력
+                print(f"   {i+1}. ID: {email.get('id', 'N/A')[:8]}...")
+                print(f"      제목: {email.get('subject', 'N/A')[:30]}...")
+                print(f"      ai_processed: {email.get('ai_processed', 'N/A')}")
+                print(f"      tags: {email.get('tags', [])}")
+            
             self.email_view.update_email_list(emails_data)
+            self.statusBar().showMessage(f"{len(emails_data)}개 이메일 로드됨")
+            
         except Exception as e:
             self.statusBar().showMessage(f"이메일 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
 
     def filter_by_tag(self, tag_name: str):
         """태그로 필터링"""
-        self.current_filter = {'tag': tag_name}
-        self.email_view.filter_by_tag(tag_name)
-        # TODO: 실제 필터링 로직 구현
-        self.statusBar().showMessage(f"'{tag_name}' 태그로 필터링")
+        try:
+            print(f"🏷️ [DEBUG] 메인 윈도우에서 태그 필터링 요청: {tag_name}")
+            
+            # 현재 필터 상태 업데이트
+            self.current_filter = {'tag': tag_name}
+            
+            # 최신 이메일 목록을 가져와서 필터링
+            all_emails = self.storage_manager.get_emails(limit=1000)
+            print(f"🏷️ [DEBUG] 필터링용 전체 이메일 로드: {len(all_emails)}개")
+            
+            # 이메일 뷰의 current_emails를 최신 상태로 업데이트
+            self.email_view.current_emails = all_emails
+            
+            # 이메일 뷰에 필터링 요청
+            self.email_view.filter_by_tag(tag_name)
+            
+            # 상태바 업데이트
+            self.statusBar().showMessage(f"'{tag_name}' 태그로 필터링")
+            
+        except Exception as e:
+            print(f"❌ 태그 필터링 요청 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.statusBar().showMessage(f"태그 필터링 실패: {e}")
+
+    def on_search_text_changed(self, text: str):
+        """검색 텍스트가 변경될 때 호출 (실시간 검색을 위한 타이머 설정)"""
+        # 기존 타이머가 있다면 중지
+        if hasattr(self, 'search_timer'):
+            self.search_timer.stop()
+        
+        # 새 타이머 생성 (500ms 후 검색 실행)
+        self.search_timer = QTimer()
+        self.search_timer.setSingleShot(True)
+        self.search_timer.timeout.connect(self.trigger_search)
+        self.search_timer.start(500)  # 500ms 지연
 
     def trigger_search(self):
         """검색 실행"""
         query = self.search_bar.text().strip()
+        
         if query:
+            # 검색 수행
             self.current_filter = {'search': query}
-            # TODO: 검색 로직 구현
             self.statusBar().showMessage(f"'{query}' 검색 중...")
+            
+            try:
+                # 저장소에서 검색 실행
+                search_results = self.storage_manager.get_emails(
+                    search_query=query,
+                    limit=1000  # 검색 결과는 더 많이 표시
+                )
+                
+                # 검색 결과를 이메일 뷰에 표시
+                self.email_view.update_email_list(search_results)
+                
+                # 상태바에 검색 결과 표시
+                result_count = len(search_results)
+                if result_count > 0:
+                    self.statusBar().showMessage(f"'{query}' 검색 완료: {result_count}개 이메일 발견", 3000)
+                else:
+                    self.statusBar().showMessage(f"'{query}' 검색 결과가 없습니다", 3000)
+                    
+                # 사이드바의 선택 해제 (검색 모드임을 표시)
+                self.sidebar.clear_selection()
+                
+            except Exception as e:
+                self.statusBar().showMessage(f"검색 중 오류 발생: {str(e)}", 5000)
+                print(f"검색 오류: {e}")
         else:
+            # 검색어가 없으면 전체 이메일 표시
             self.current_filter = {}
             self.statusBar().showMessage("검색 해제")
+            self.load_emails()
+
+    def clear_search(self):
+        """검색 초기화"""
+        self.search_bar.clear()
+        self.current_filter = {}
+        self.statusBar().showMessage("검색 초기화됨")
+        self.load_emails()
 
     def open_email_files(self):
         """이메일 파일 열기"""
@@ -297,93 +626,27 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            from ..email.parser import EmailParser
+            # 이전 워커가 실행 중이면 중단
+            if self.current_worker and self.current_worker.isRunning():
+                QMessageBox.warning(self, "처리 중", "이미 이메일 처리가 진행 중입니다. 완료 후 다시 시도해주세요.")
+                return
             
-            # 처리 진행률 표시
-            total_files = len(valid_files)
-            self.email_view.show_processing_progress(0, total_files)
+            self.current_worker = EmailProcessingWorker(valid_files, {
+                'file_manager': self.file_manager,
+                'storage_manager': self.storage_manager,
+                'tagger': self.tagger
+            })
             
-            parser = EmailParser()
-            processed_emails = []
-            errors = []
+            # 시그널 연결
+            self.current_worker.progress_updated.connect(self.email_view.show_processing_progress)
+            self.current_worker.status_updated.connect(self.statusBar().showMessage)
+            self.current_worker.processing_completed.connect(self.handle_processing_completed)
+            self.current_worker.processing_error.connect(self.handle_processing_error)
             
-            for i, file_path in enumerate(valid_files):
-                try:
-                    self.statusBar().showMessage(f"파일 파싱 중... ({i+1}/{total_files}): {file_path}")
-                    
-                    # 이메일 파싱
-                    email_data = parser.parse_eml_file(file_path)
-                    
-                    # AI 태깅 수행
-                    self.statusBar().showMessage(f"AI 태깅 중... ({i+1}/{total_files})")
-                    
-                    # 이메일 내용 준비
-                    email_content = f"제목: {email_data.get('subject', '')}\n"
-                    email_content += f"발신자: {email_data.get('sender', '')}\n"
-                    if email_data.get('body_text'):
-                        email_content += f"내용: {email_data['body_text'][:1000]}"
-                    
-                    tagging_result = self.tagger.tag_email(email_content)
-                    
-                    # 태깅 결과 확인 및 처리
-                    if 'error' in tagging_result:
-                        error_msg = f"{file_path}: AI 태깅 실패 - {tagging_result['error']}"
-                        errors.append(error_msg)
-                        print(f"태깅 오류: {error_msg}")
-                        
-                        # 태깅 실패한 경우에도 기본 정보는 저장
-                        email_data['ai_processed'] = False
-                        email_data['assigned_tags'] = []
-                        email_data['tag_confidence'] = 0.0
-                        email_data['tagging_error'] = tagging_result['error']
-                    else:
-                        # 태깅 결과 추가
-                        email_data['ai_processed'] = True
-                        email_data['assigned_tags'] = tagging_result.get('matched_tags', [])
-                        email_data['tag_confidence'] = sum(tagging_result.get('confidence_scores', {}).values()) / max(len(tagging_result.get('confidence_scores', {})), 1)
-                    
-                    # 데이터베이스에 저장
-                    # TODO: 데이터베이스 저장 로직 구현
-                    processed_emails.append(email_data)
-                    
-                    # 진행률 업데이트
-                    self.email_view.show_processing_progress(i + 1, total_files)
-                    
-                except Exception as e:
-                    error_msg = f"{file_path}: {str(e)}"
-                    errors.append(error_msg)
-                    print(f"파일 처리 오류: {error_msg}")
+            # 완료 시 워커 정리
+            self.current_worker.finished.connect(self.cleanup_worker)
             
-            # 처리 완료
-            self.email_view.hide_processing_progress()
-            
-            # 결과 메시지
-            success_count = len(processed_emails)
-            error_count = len(errors)
-            
-            if success_count > 0:
-                message = f"✅ {success_count}개 이메일이 성공적으로 처리되었습니다."
-                if error_count > 0:
-                    message += f"\n⚠️ {error_count}개 파일에서 오류가 발생했습니다."
-                
-                # 성공한 이메일 목록 표시
-                if processed_emails:
-                    self.email_view.update_email_list(processed_emails)
-                    self.load_tags()  # 태그 목록 새로고침
-                
-                QMessageBox.information(self, "처리 완료", message)
-                self.statusBar().showMessage(f"이메일 처리 완료: {success_count}개 성공", 5000)
-            else:
-                error_details = "\n".join(errors[:5])  # 최대 5개 오류만 표시
-                if len(errors) > 5:
-                    error_details += f"\n... 및 {len(errors) - 5}개 추가 오류"
-                
-                QMessageBox.critical(
-                    self,
-                    "처리 실패",
-                    f"모든 파일 처리에 실패했습니다.\n\n오류 내용:\n{error_details}"
-                )
-                self.statusBar().showMessage("파일 처리 실패", 5000)
+            self.current_worker.start()
             
         except ImportError as e:
             QMessageBox.critical(
@@ -392,6 +655,7 @@ class MainWindow(QMainWindow):
                 f"필요한 모듈을 가져올 수 없습니다:\n{str(e)}\n\n개발자에게 문의하세요."
             )
         except Exception as e:
+            # 오류 발생 시 진행바 숨김
             self.email_view.hide_processing_progress()
             QMessageBox.critical(
                 self,
@@ -495,7 +759,7 @@ class MainWindow(QMainWindow):
                 timeout=ollama_settings.get("timeout", 60)
             )
             self.ollama_client = OllamaClient(ollama_config, self.ai_config)
-            self.tagger.set_client(self.ollama_client)
+            self.tagger = Tagger(self.ollama_client, self.storage_manager)
             # ReplyGenerator 인스턴스 재생성 (set_client 대신)
             self.reply_generator = ReplyGenerator(self.ollama_client)
             self.statusBar().showMessage("Ollama 설정이 업데이트되었습니다.")
@@ -504,6 +768,12 @@ class MainWindow(QMainWindow):
 
         # 태그 다시 로드
         self.load_tags()
+        
+    def refresh_all_data(self):
+        """모든 데이터를 새로고침합니다."""
+        self.load_tags()
+        self.load_emails()
+        self.statusBar().showMessage("데이터 새로고침 완료", 3000)
 
     def check_initial_ollama_status(self):
         """애플리케이션 시작 시 Ollama 연결 상태 확인"""
@@ -516,6 +786,185 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("⚠️ Ollama 연결 실패 - 설정에서 확인하세요", 10000)
         except Exception as e:
             self.statusBar().showMessage(f"❌ Ollama 연결 오류: {str(e)[:50]}...", 10000)
+    
+    def delete_emails(self, email_ids: List[int]):
+        """이메일 삭제 처리"""
+        try:
+            if not email_ids:
+                return
+            
+            # 데이터베이스에서 삭제
+            result = self.storage_manager.delete_emails([str(email_id) for email_id in email_ids])
+            
+            success_count = result.get('success_count', 0)
+            failed_count = result.get('failed_count', 0)
+            
+            if success_count > 0:
+                # 이메일 목록과 태그 새로고침
+                self.load_emails()
+                self.load_tags()  # 태그 카운트 업데이트
+                
+                if failed_count > 0:
+                    QMessageBox.warning(
+                        self, 
+                        "부분 삭제 완료",
+                        f"총 {len(email_ids)}개 중 {success_count}개 삭제 완료, {failed_count}개 실패"
+                    )
+                    self.statusBar().showMessage(f"{success_count}개 이메일 삭제됨 ({failed_count}개 실패)")
+                else:
+                    self.statusBar().showMessage(f"{success_count}개 이메일 삭제됨")
+            else:
+                QMessageBox.critical(
+                    self, 
+                    "삭제 실패",
+                    "선택한 이메일을 삭제할 수 없습니다."
+                )
+                self.statusBar().showMessage("이메일 삭제 실패")
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "삭제 오류",
+                f"이메일 삭제 중 오류가 발생했습니다:\n{str(e)}"
+            )
+            self.statusBar().showMessage("이메일 삭제 오류")
+
+    def reanalyze_email(self, email_data: Dict[str, Any]):
+        """단일 이메일 재분석"""
+        try:
+            # Ollama 연결 상태 확인
+            if not self.check_ollama_connection():
+                self.statusBar().showMessage("Ollama 연결 실패 - 재분석이 중단되었습니다.", 5000)
+                return
+            
+            email_id = email_data.get('id')
+            if not email_id:
+                QMessageBox.warning(self, "오류", "이메일 ID를 찾을 수 없습니다.")
+                return
+            
+            self.statusBar().showMessage(f"재분석 중... '{email_data.get('subject', 'N/A')[:30]}...'")
+            
+            # AI 태깅 수행
+            tagging_result = self.tagger.analyze_email(email_data)
+            
+            # 태깅 결과 처리
+            if tagging_result is not None:
+                # AI 분석 완료 (태그가 있든 없든)
+                ai_processed = True
+                assigned_tags = tagging_result if tagging_result else []
+                tag_confidence = 1.0 if tagging_result else 0.5
+                
+                if tagging_result:
+                    print(f"✅ 재분석 완료: {assigned_tags}")
+                    message = f"재분석 완료: {len(assigned_tags)}개 태그 할당됨"
+                else:
+                    print(f"✅ 재분석 완료 - 해당 태그 없음")
+                    message = "재분석 완료: 해당하는 태그 없음"
+            else:
+                # AI 분석 실패
+                ai_processed = False
+                assigned_tags = []
+                tag_confidence = 0.0
+                message = "재분석 실패: AI 오류"
+                print(f"🚨 재분석 실패: {email_data.get('subject', 'N/A')}")
+            
+            # 데이터베이스 업데이트
+            emails = self.storage_manager.get_emails(limit=1000)
+            for i, email in enumerate(emails):
+                if email.get('id') == email_id:
+                    email['ai_processed'] = ai_processed
+                    if ai_processed and assigned_tags:
+                        # 기존 태그를 새 태그로 교체
+                        email['tags'] = assigned_tags
+                        # 스토리지에서 태그도 업데이트
+                        self.storage_manager.assign_tags_to_email(email_id, assigned_tags)
+                    break
+            
+            # UI 새로고침
+            self.load_emails()
+            self.load_tags()
+            
+            QMessageBox.information(self, "재분석 완료", message)
+            self.statusBar().showMessage(message, 5000)
+            
+        except Exception as e:
+            error_msg = f"재분석 중 오류 발생: {str(e)}"
+            print(f"❌ {error_msg}")
+            QMessageBox.critical(self, "재분석 오류", error_msg)
+            self.statusBar().showMessage("재분석 실패", 5000)
+
+    def handle_processing_completed(self, processed_emails, errors):
+        """처리 완료 핸들러"""
+        # 진행바 숨김 (2초 후)
+        QTimer.singleShot(2000, self.email_view.hide_processing_progress)
+        
+        success_count = len(processed_emails)
+        error_count = len(errors)
+        
+        if success_count > 0:
+            message = f"✅ {success_count}개 이메일이 성공적으로 처리되었습니다."
+            if error_count > 0:
+                message += f"\n⚠️ {error_count}개 파일에서 오류가 발생했습니다."
+            
+            # 성공한 이메일 목록 표시
+            if processed_emails:
+                self.email_view.update_email_list(processed_emails)
+                self.load_tags()  # 태그 목록 새로고침
+                # 데이터베이스에서 전체 이메일 목록 다시 로드
+                self.load_emails()
+            
+            QMessageBox.information(self, "처리 완료", message)
+            self.statusBar().showMessage(f"이메일 처리 완료: {success_count}개 성공", 5000)
+        else:
+            error_details = "\n".join(errors[:5])  # 최대 5개 오류만 표시
+            if len(errors) > 5:
+                error_details += f"\n... 및 {len(errors) - 5}개 추가 오류"
+            
+            QMessageBox.critical(
+                self,
+                "처리 실패",
+                f"모든 파일 처리에 실패했습니다.\n\n오류 내용:\n{error_details}"
+            )
+            self.statusBar().showMessage("파일 처리 실패", 5000)
+
+    def handle_processing_error(self, error_message):
+        """처리 오류 핸들러"""
+        # 진행바 즉시 숨김
+        self.email_view.hide_processing_progress()
+        QMessageBox.critical(self, "처리 오류", error_message)
+        self.statusBar().showMessage("파일 처리 실패", 5000)
+
+    def cleanup_worker(self):
+        """워커 스레드 정리"""
+        if self.current_worker:
+            self.current_worker.deleteLater()
+            self.current_worker = None
+
+    def closeEvent(self, event):
+        """애플리케이션 종료 시 안전한 스레드 정리"""
+        if self.current_worker and self.current_worker.isRunning():
+            # 사용자에게 확인
+            reply = QMessageBox.question(
+                self, 
+                "처리 중", 
+                "이메일 처리가 진행 중입니다. 종료하시겠습니까?\n처리 중인 작업이 중단됩니다.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                # 워커 스레드 취소 및 종료 대기
+                self.current_worker.cancel()
+                if not self.current_worker.wait(3000):  # 3초 대기
+                    self.current_worker.terminate()  # 강제 종료
+                    self.current_worker.wait()  # 종료 완료까지 대기
+                self.current_worker.deleteLater()
+                event.accept()
+            else:
+                event.ignore()
+                return
+        
+        event.accept()
 
 def main():
     app = QApplication(sys.argv)
