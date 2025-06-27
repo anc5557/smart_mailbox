@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QTimer, QThread
 from PyQt6.QtGui import QAction
+import qdarktheme
 
 from .sidebar import Sidebar
 from .email_view import EmailView
@@ -30,6 +31,7 @@ class EmailProcessingWorker(QThread):
     file_processed = pyqtSignal(dict)  # processed email data
     processing_completed = pyqtSignal(list, list)  # processed_emails, errors
     processing_error = pyqtSignal(str)  # error message
+    reply_generated = pyqtSignal(str, str, str)  # email_id, subject, generated_reply
     
     def __init__(self, file_paths, components):
         super().__init__()
@@ -37,6 +39,7 @@ class EmailProcessingWorker(QThread):
         self.file_manager = components['file_manager']
         self.storage_manager = components['storage_manager']
         self.tagger = components['tagger']
+        self.reply_generator = components.get('reply_generator')  # 답장 생성기 추가
         self.is_cancelled = False
     
     def run(self):
@@ -134,6 +137,30 @@ class EmailProcessingWorker(QThread):
                             assigned_tags = email_data['assigned_tags']
                             self.storage_manager.assign_tags_to_email(email_id, assigned_tags)
                             print(f"💾 태그 저장 완료: {assigned_tags}")
+                            
+                            # 🆕 회신필요 태그 감지 시 자동 답장 생성
+                            if '회신필요' in assigned_tags and self.reply_generator:
+                                self.progress_updated.emit(i, total_files, f"✍️ 답장 생성 중: {filename}")
+                                self.status_updated.emit(f"답장 생성 중... ({i+1}/{total_files})")
+                                
+                                try:
+                                    generated_reply = self._generate_reply_for_email(email_data)
+                                    if generated_reply:
+                                        # 답장을 데이터베이스에 저장
+                                        reply_saved = self._save_generated_reply(email_id, email_data, generated_reply)
+                                        if reply_saved:
+                                            print(f"✅ 답장 생성 및 저장 완료: {email_data['subject']}")
+                                            self.reply_generated.emit(
+                                                email_id, 
+                                                email_data['subject'], 
+                                                generated_reply
+                                            )
+                                        else:
+                                            print(f"⚠️ 답장 생성됐지만 저장 실패: {email_data['subject']}")
+                                    else:
+                                        print(f"⚠️ 답장 생성 실패: {email_data['subject']}")
+                                except Exception as reply_error:
+                                    print(f"❌ 답장 생성 중 오류: {reply_error}")
                         
                         # 저장된 이메일 다시 로드
                         saved_email = self.storage_manager.get_email_by_id(email_id)
@@ -167,6 +194,55 @@ class EmailProcessingWorker(QThread):
         except Exception as e:
             self.processing_error.emit(str(e))
     
+    def _generate_reply_for_email(self, email_data: Dict[str, Any]) -> str:
+        """이메일에 대한 답장을 생성합니다."""
+        try:
+            # 답장 생성 - email_data 딕셔너리를 직접 전달
+            generated_reply = self.reply_generator.generate_reply(email_data)
+            return generated_reply or ""
+            
+        except Exception as e:
+            print(f"답장 생성 중 오류: {e}")
+            return ""
+    
+    def _save_generated_reply(self, original_email_id: str, original_email: Dict[str, Any], reply_content: str) -> bool:
+        """생성된 답장을 데이터베이스에 저장합니다."""
+        try:
+            # 답장 이메일 데이터 구성
+            reply_subject = original_email.get('subject', '')
+            if not reply_subject.startswith('Re: '):
+                reply_subject = f"Re: {reply_subject}"
+            
+            reply_data = {
+                'subject': reply_subject,
+                'sender': original_email.get('recipient', ''),  # 원본 수신자가 답장 발신자
+                'sender_name': original_email.get('recipient_name', ''),
+                'recipient': original_email.get('sender', ''),  # 원본 발신자가 답장 수신자
+                'recipient_name': original_email.get('sender_name', ''),
+                'date_sent': datetime.now().isoformat(),
+                'date_received': datetime.now().isoformat(),
+                'body_text': reply_content,
+                'body_html': None,
+                'file_path': '',  # 생성된 답장은 파일이 없음
+                'file_size': 0,
+                'file_hash': None,
+                'ai_processed': True,
+                'has_attachments': False,
+                'attachment_count': 0,
+                'attachment_info': None,
+                'is_generated_reply': True,  # 생성된 답장임을 표시
+                'original_email_id': original_email_id  # 원본 이메일 ID 참조
+            }
+            
+            # 답장 저장
+            reply_id = self.storage_manager.save_email(reply_data)
+            
+            return True
+            
+        except Exception as e:
+            print(f"답장 저장 중 오류: {e}")
+            return False
+    
     def cancel(self):
         """처리 취소"""
         self.is_cancelled = True
@@ -188,10 +264,8 @@ class MainWindow(QMainWindow):
         self.connect_signals()
         self.load_initial_data()
         
-        # 초기 테마 적용 (중요!)
-        current_theme = self.settings.value("general/theme", "auto", type=str)
-        print(f"🎨 초기 테마 적용: {current_theme}")  # 디버깅용
-        self.theme_changed.emit(current_theme)
+        # 초기 테마는 이미 setup_ui에서 적용됨
+        print(f"🎨 초기 테마 설정 완료")
         
         # Ollama 연결 상태 확인 및 표시
         self.check_initial_ollama_status()
@@ -223,6 +297,8 @@ class MainWindow(QMainWindow):
         """메인 UI 구성"""
         self.setWindowTitle("🤖 AI Smart Mailbox")
         self.setGeometry(100, 100, 1200, 800)
+        
+        # 테마는 main.py에서 관리됨
         
         # 중앙 위젯
         central_widget = QWidget()
@@ -261,21 +337,7 @@ class MainWindow(QMainWindow):
         self.search_bar.setPlaceholderText("이메일 제목, 내용, 발신자, 수신자, 태그 검색...")
         self.search_bar.setFixedHeight(32)  # 고정 높이로 더 줄임
         
-        # 검색바 스타일링
-        self.search_bar.setStyleSheet("""
-            QLineEdit#searchBar {
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-size: 13px;
-                background-color: #f8f9fa;
-            }
-            QLineEdit#searchBar:focus {
-                border: 2px solid #0078d4;
-                background-color: #ffffff;
-                outline: none;
-            }
-        """)
+        # 검색바는 기본 테마 사용
         
         search_layout.addWidget(self.search_bar)
         
@@ -283,22 +345,6 @@ class MainWindow(QMainWindow):
         self.search_button = QPushButton("검색")
         self.search_button.setFixedHeight(32)
         self.search_button.setFixedWidth(60)
-        self.search_button.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-            QPushButton:pressed {
-                background-color: #005a9e;
-            }
-        """)
         self.search_button.clicked.connect(self.trigger_search)
         search_layout.addWidget(self.search_button)
         
@@ -307,39 +353,10 @@ class MainWindow(QMainWindow):
         self.clear_search_button.setFixedHeight(32)
         self.clear_search_button.setFixedWidth(32)
         self.clear_search_button.setToolTip("검색 초기화")
-        self.clear_search_button.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #5a6268;
-            }
-            QPushButton:pressed {
-                background-color: #545b62;
-            }
-        """)
         self.clear_search_button.clicked.connect(self.clear_search)
         search_layout.addWidget(self.clear_search_button)
         
-        # 검색 위젯 전체 스타일링 - 헤더 느낌으로
-        search_widget.setStyleSheet("""
-            QWidget#searchWidget {
-                background-color: #ffffff;
-                border-bottom: 1px solid #e1e5e9;
-            }
-            QLabel#searchLabel {
-                font-weight: 600;
-                font-size: 16px;
-                color: #495057;
-                min-width: 30px;
-                max-width: 30px;
-            }
-        """)
+        # 검색 위젯도 기본 테마 사용
         
         layout.addWidget(search_widget)
 
@@ -353,7 +370,8 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.sidebar)
         
         # 이메일 뷰 (storage_manager 전달)
-        self.email_view = EmailView(self.storage_manager)
+        self.email_view = EmailView()
+        self.email_view.set_storage_manager(self.storage_manager)
         splitter.addWidget(self.email_view)
         
         # 사이즈 비율: 사이드바 20%, 이메일 뷰 80%
@@ -384,7 +402,7 @@ class MainWindow(QMainWindow):
 
     def connect_signals(self):
         self.sidebar.tag_selected.connect(self.filter_by_tag)
-        self.sidebar.home_selected.connect(self.email_view.show_home_view)
+        self.sidebar.home_selected.connect(self.show_all_emails)  # 홈 버튼을 직접 연결
         self.sidebar.refresh_requested.connect(self.refresh_all_data)  # 새로고침 버튼 연결
         self.email_view.status_changed.connect(self.statusBar().showMessage)
         
@@ -400,6 +418,9 @@ class MainWindow(QMainWindow):
         # 검색바 시그널 연결 추가
         self.search_bar.textChanged.connect(self.on_search_text_changed)
         self.search_bar.returnPressed.connect(self.trigger_search)
+        
+        # 전체 이메일 다시 로드 시그널 연결
+        self.email_view.reload_all_emails_requested.connect(self.show_all_emails)
 
     def load_initial_data(self):
         self.load_tags()
@@ -410,32 +431,42 @@ class MainWindow(QMainWindow):
             # 저장소에서 실제 태그와 이메일 카운트 가져오기
             all_tags = self.storage_manager.get_all_tags()
             
-            # 현재 로드된 이메일이 있으면 그것을 사용, 없으면 저장소에서 가져오기
-            if hasattr(self, 'email_view') and hasattr(self.email_view, 'current_emails') and self.email_view.current_emails:
-                emails = self.email_view.current_emails
-                print(f"📊 [DEBUG] 캐시된 이메일 사용: {len(emails)}개")
-            else:
-                emails = self.storage_manager.get_emails(limit=1000)
-                print(f"📊 [DEBUG] 저장소에서 이메일 로드: {len(emails)}개")
+            # 항상 저장소에서 최신 이메일을 가져와서 정확한 카운트 계산
+            emails = self.storage_manager.get_emails(limit=1000)
+            print(f"📊 [DEBUG] 태그 카운트 계산용 이메일 로드: {len(emails)}개")
             
             # 태그별 이메일 카운트 계산 (개선된 로직)
             tag_counts = {}
-            for email in emails:
+            
+            # 모든 이메일을 순회하며 태그 카운트
+            for i, email in enumerate(emails):
+                email_id = email.get('id', 'N/A')[:8]
                 email_tags = email.get('tags', [])
+                
+                if i < 3:  # 처음 3개만 디버깅 출력
+                    print(f"📊 [DEBUG] 이메일 {i+1} (ID: {email_id}): tags={email_tags} (타입: {type(email_tags)})")
                 
                 # 태그가 리스트인지 확인하고 처리
                 if isinstance(email_tags, list):
                     for tag in email_tags:
                         if isinstance(tag, dict):
+                            # 딕셔너리 형태의 태그
                             tag_name = tag.get('name', '')
+                        elif isinstance(tag, str):
+                            # 문자열 형태의 태그
+                            tag_name = tag
                         else:
+                            # 기타 형태는 문자열로 변환
                             tag_name = str(tag)
                         
-                        if tag_name:  # 빈 태그 이름 제외
+                        if tag_name and tag_name.strip():  # 빈 태그 이름 제외
                             tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
-                elif isinstance(email_tags, str) and email_tags:
+                            
+                elif isinstance(email_tags, str) and email_tags.strip():
                     # 단일 태그 문자열인 경우
                     tag_counts[email_tags] = tag_counts.get(email_tags, 0) + 1
+            
+            print(f"📊 [DEBUG] 계산된 태그 카운트: {tag_counts}")
             
             # 태그 데이터 구성
             tags_data = []
@@ -634,14 +665,17 @@ class MainWindow(QMainWindow):
             self.current_worker = EmailProcessingWorker(valid_files, {
                 'file_manager': self.file_manager,
                 'storage_manager': self.storage_manager,
-                'tagger': self.tagger
+                'tagger': self.tagger,
+                'reply_generator': self.reply_generator
             })
             
             # 시그널 연결
             self.current_worker.progress_updated.connect(self.email_view.show_processing_progress)
             self.current_worker.status_updated.connect(self.statusBar().showMessage)
+            # 개별 파일 처리 완료 시는 전체 새로고침으로 처리
             self.current_worker.processing_completed.connect(self.handle_processing_completed)
             self.current_worker.processing_error.connect(self.handle_processing_error)
+            self.current_worker.reply_generated.connect(self.on_reply_generated)
             
             # 완료 시 워커 정리
             self.current_worker.finished.connect(self.cleanup_worker)
@@ -965,6 +999,64 @@ class MainWindow(QMainWindow):
                 return
         
         event.accept()
+
+    def on_reply_generated(self, email_id: str, subject: str, reply_content: str):
+        """답장이 생성되었을 때 호출되는 슬롯"""
+        # 상태바에 메시지 표시
+        self.statusBar().showMessage(f"답장 생성 완료: {subject}")
+        
+        # 알림 메시지 (선택적)
+        print(f"💬 답장 생성됨 - 제목: {subject}")
+        print(f"📝 답장 내용 미리보기: {reply_content[:100]}...")
+        
+        # 사용자에게 답장 생성 완료 알림
+        reply_preview = reply_content[:200] + "..." if len(reply_content) > 200 else reply_content
+        QMessageBox.information(
+            self,
+            "답장 생성 완료",
+            f"""💬 회신필요 이메일에 대한 답장이 자동으로 생성되었습니다.
+
+📧 원본 제목: {subject}
+✍️ 답장 미리보기:
+{reply_preview}
+
+생성된 답장은 이메일 목록에서 확인하실 수 있습니다."""
+        )
+
+    def show_all_emails(self):
+        """전체 이메일 표시 (홈 버튼용)"""
+        try:
+            print("🏠 [DEBUG] 전체 이메일 로드 요청")
+            
+            # 필터 상태 초기화
+            self.current_filter = {}
+            
+            # 검색바 초기화
+            self.search_bar.clear()
+            
+            # 전체 이메일 로드
+            all_emails = self.storage_manager.get_emails(limit=1000)
+            print(f"🏠 [DEBUG] 전체 이메일 로드됨: {len(all_emails)}개")
+            
+            # 이메일 뷰에 전체 이메일 표시
+            self.email_view.current_emails = all_emails
+            self.email_view.list_title.setText("📧 전체 이메일")
+            self.email_view.update_email_list(all_emails)
+            
+            # 이메일 선택 해제
+            self.email_view.email_table.clearSelection()
+            self.email_view.email_detail.clear()
+            
+            # 태그 개수 다시 계산
+            self.load_tags()
+            
+            self.statusBar().showMessage(f"전체 이메일 로드됨: {len(all_emails)}개")
+            
+        except Exception as e:
+            print(f"❌ 전체 이메일 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.statusBar().showMessage(f"전체 이메일 로드 실패: {e}")
 
 def main():
     app = QApplication(sys.argv)

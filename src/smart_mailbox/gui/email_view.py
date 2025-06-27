@@ -25,7 +25,12 @@ class EmailDetailWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.current_email = None
+        self.storage_manager = None  # 스토리지 매니저 추가
         self.setup_ui()
+    
+    def set_storage_manager(self, storage_manager):
+        """스토리지 매니저를 설정합니다."""
+        self.storage_manager = storage_manager
     
     def setup_ui(self):
         """UI 초기화"""
@@ -41,6 +46,9 @@ class EmailDetailWidget(QWidget):
         
         # 이메일 본문
         self.setup_body_section(layout)
+        
+        # 답장 섹션 추가
+        self.setup_reply_section(layout)
         
         # 첨부파일 정보
         self.setup_attachments_section(layout)
@@ -100,6 +108,22 @@ class EmailDetailWidget(QWidget):
         body_layout.addWidget(self.body_text)
         
         layout.addWidget(self.body_group)
+    
+    def setup_reply_section(self, layout: QVBoxLayout):
+        """답장 섹션 설정"""
+        self.reply_group = QGroupBox("AI 자동 답장")
+        reply_layout = QVBoxLayout(self.reply_group)
+        
+        # 답장 텍스트
+        self.reply_text = QTextEdit()
+        self.reply_text.setReadOnly(True)
+        self.reply_text.setMaximumHeight(200)  # 높이 제한
+        reply_layout.addWidget(self.reply_text)
+        
+        # 기본적으로 숨김
+        self.reply_group.hide()
+        
+        layout.addWidget(self.reply_group)
     
     def setup_attachments_section(self, layout: QVBoxLayout):
         """첨부파일 섹션 설정"""
@@ -216,9 +240,51 @@ class EmailDetailWidget(QWidget):
             self.attachments_label.setText("첨부파일이 없습니다.")
             self.attachments_group.hide()
         
+        # 답장 정보 업데이트
+        self._load_generated_replies(email_data)
+        
         # 이메일 상세 위젯을 명시적으로 표시
         self.show()
         print(f"✅ [DEBUG] 이메일 상세 정보 표시 완료: {email_data.get('subject', 'N/A')[:30]}...")
+    
+    def _load_generated_replies(self, email_data: Dict[str, Any]):
+        """이메일에 대한 생성된 답장을 로드합니다."""
+        try:
+            if not self.storage_manager:
+                self.reply_group.hide()
+                return
+            
+            email_id = email_data.get('id')
+            if not email_id:
+                self.reply_group.hide()
+                return
+            
+            # 해당 이메일에 대한 답장 찾기
+            replies = self.storage_manager.get_generated_replies_for_email(email_id)
+            
+            if replies:
+                print(f"💬 [DEBUG] {len(replies)}개의 답장 발견됨")
+                
+                # 가장 최신 답장 표시
+                latest_reply = replies[0]
+                reply_content = latest_reply.get('body_text', '')
+                reply_date = latest_reply.get('date_sent', '')
+                
+                # 답장 텍스트 설정
+                if reply_content:
+                    display_text = f"생성 일시: {reply_date}\n\n{reply_content}"
+                    self.reply_text.setPlainText(display_text)
+                    self.reply_group.show()
+                    print(f"✅ [DEBUG] 답장 표시됨: {reply_content[:50]}...")
+                else:
+                    self.reply_group.hide()
+            else:
+                print(f"📭 [DEBUG] 답장 없음")
+                self.reply_group.hide()
+                
+        except Exception as e:
+            print(f"❌ 답장 로드 실패: {e}")
+            self.reply_group.hide()
     
     def on_reanalyze_clicked(self):
         """재분석 버튼 클릭 시 호출"""
@@ -400,20 +466,25 @@ class EmailView(QWidget):
     reanalyze_requested = pyqtSignal(dict)  # 이메일 재분석 요청 시그널
     reload_all_emails_requested = pyqtSignal()  # 전체 이메일 재로드 요청 시그널
     
-    def __init__(self, storage_manager=None):
+    def __init__(self):
         super().__init__()
         self.current_emails = []
-        self.storage_manager = storage_manager
+        self.file_manager = None
+        self.storage_manager = None
         self.setup_ui()
     
     def set_storage_manager(self, storage_manager):
         """스토리지 매니저 설정"""
         self.storage_manager = storage_manager
+        # EmailDetailWidget에도 스토리지 매니저 설정
+        if hasattr(self, 'email_detail'):
+            self.email_detail.set_storage_manager(storage_manager)
     
     def setup_ui(self):
         """UI 초기화"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
         # 스플리터로 좌우 분할
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -424,13 +495,16 @@ class EmailView(QWidget):
         # 오른쪽: 이메일 상세 정보
         self.email_detail = EmailDetailWidget()
         self.email_detail.reanalyze_requested.connect(self.on_reanalyze_requested)
+        # 스토리지 매니저가 이미 설정되어 있으면 EmailDetailWidget에도 설정
+        if self.storage_manager:
+            self.email_detail.set_storage_manager(self.storage_manager)
         splitter.addWidget(self.email_detail)
         
         # 스플리터 비율 설정 (목록:상세 = 1:1)
         splitter.setSizes([500, 500])
         
         layout.addWidget(splitter)
-    
+
     def setup_email_list(self, splitter: QSplitter):
         """이메일 목록 영역 설정"""
         list_widget = QWidget()
@@ -474,18 +548,7 @@ class EmailView(QWidget):
         # 툴바 (액션 버튼들)
         self.setup_toolbar(header_layout)
         
-        # 헤더 스타일링
-        header_widget.setStyleSheet("""
-            QWidget#headerWidget {
-                background-color: #f8f9fa;
-                border-bottom: 1px solid #e1e5e9;
-            }
-            QLabel#listTitle {
-                color: #212529;
-                margin: 0;
-                padding: 0;
-            }
-        """)
+        # 헤더는 기본 테마 사용
         
         layout.addWidget(header_widget)
 
@@ -536,69 +599,7 @@ class EmailView(QWidget):
         self.email_count_label.setObjectName("countLabel")
         toolbar_layout.addWidget(self.email_count_label)
         
-        # 툴바 스타일링
-        toolbar_widget.setStyleSheet("""
-            QPushButton {
-                background-color: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 500;
-                font-size: 13px;
-                color: #495057;
-            }
-            QPushButton:hover {
-                background-color: #f8f9fa;
-                border-color: #adb5bd;
-            }
-            QPushButton:pressed {
-                background-color: #e9ecef;
-                border-color: #6c757d;
-            }
-            QPushButton:disabled {
-                background-color: #f8f9fa;
-                border-color: #e9ecef;
-                color: #6c757d;
-            }
-            
-            QPushButton#uploadButton {
-                background-color: #0d6efd;
-                border-color: #0d6efd;
-                color: white;
-                font-weight: 600;
-            }
-            QPushButton#uploadButton:hover {
-                background-color: #0b5ed7;
-                border-color: #0a58ca;
-            }
-            QPushButton#uploadButton:pressed {
-                background-color: #0a58ca;
-                border-color: #0a53be;
-            }
-            
-            QPushButton#deleteButton:enabled {
-                background-color: #dc3545;
-                border-color: #dc3545;
-                color: white;
-            }
-            QPushButton#deleteButton:enabled:hover {
-                background-color: #c82333;
-                border-color: #bd2130;
-            }
-            QPushButton#deleteButton:enabled:pressed {
-                background-color: #bd2130;
-                border-color: #b21e2f;
-            }
-            
-            QLabel#countLabel {
-                color: #6c757d;
-                font-size: 12px;
-                font-weight: 500;
-                padding: 8px 12px;
-                background-color: #e9ecef;
-                border-radius: 4px;
-            }
-        """)
+        # 툴바는 기본 테마 사용
         
         layout.addWidget(toolbar_widget)
     
@@ -612,42 +613,16 @@ class EmailView(QWidget):
         
         # 진행 상태 레이블
         self.progress_label = QLabel("이메일 처리 중...")
-        self.progress_label.setStyleSheet("""
-            QLabel {
-                font-weight: bold;
-                color: #0078d4;
-                font-size: 14px;
-            }
-        """)
         progress_layout.addWidget(self.progress_label)
         
         # 진행바
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #e1e5e9;
-                border-radius: 6px;
-                text-align: center;
-                background-color: #f8f9fa;
-                font-weight: bold;
-            }
-            QProgressBar::chunk {
-                background-color: #0078d4;
-                border-radius: 4px;
-            }
-        """)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setMinimumHeight(25)
         progress_layout.addWidget(self.progress_bar)
         
         # 상세 정보 레이블
         self.progress_detail = QLabel("")
-        self.progress_detail.setStyleSheet("""
-            QLabel {
-                color: #6c757d;
-                font-size: 12px;
-            }
-        """)
         self.progress_detail.setWordWrap(True)
         progress_layout.addWidget(self.progress_detail)
         
@@ -655,8 +630,6 @@ class EmailView(QWidget):
         self.progress_widget.hide()
         
         layout.addWidget(self.progress_widget)
-    
-
     
     def update_delete_button_state(self):
         """삭제 버튼 상태 업데이트"""
@@ -777,34 +750,39 @@ class EmailView(QWidget):
                 
                 print(f"🔍 [DEBUG] 이메일 {i+1}: ID={email_id}, 제목='{email_subject}', 태그={email_tags} (타입: {type(email_tags)})")
                 
-                # 태그가 리스트인지 확인하고 처리
+                # 태그 매칭 검사
+                is_matched = False
+                
                 if isinstance(email_tags, list):
                     # 태그 이름으로 검색 (딕셔너리 형태든 문자열 형태든 지원)
                     tag_names = []
                     for tag in email_tags:
                         if isinstance(tag, dict):
                             tag_names.append(tag.get('name', ''))
+                        elif isinstance(tag, str):
+                            tag_names.append(tag)
                         else:
                             tag_names.append(str(tag))
                     
-                    print(f"🔍 [DEBUG]   → 추출된 태그 이름들: {tag_names}")
+                    # 공백 제거 후 비교
+                    clean_tag_names = [name.strip() for name in tag_names if name and str(name).strip()]
+                    print(f"🔍 [DEBUG]   → 추출된 태그 이름들: {clean_tag_names}")
                     
-                    if tag_name in tag_names:
-                        filtered_emails.append(email)
-                        print(f"✅ [DEBUG]   → 매칭됨! 필터링에 포함")
-                    else:
-                        print(f"❌ [DEBUG]   → 매칭되지 않음")
+                    if tag_name in clean_tag_names:
+                        is_matched = True
                         
                 elif isinstance(email_tags, str):
                     # 단일 태그 문자열인 경우
-                    print(f"🔍 [DEBUG]   → 단일 태그 문자열: '{email_tags}'")
-                    if tag_name == email_tags:
-                        filtered_emails.append(email)
-                        print(f"✅ [DEBUG]   → 매칭됨! 필터링에 포함")
-                    else:
-                        print(f"❌ [DEBUG]   → 매칭되지 않음")
+                    clean_tag = email_tags.strip()
+                    print(f"🔍 [DEBUG]   → 단일 태그 문자열: '{clean_tag}'")
+                    if tag_name == clean_tag:
+                        is_matched = True
+                
+                if is_matched:
+                    filtered_emails.append(email)
+                    print(f"✅ [DEBUG]   → 매칭됨! 필터링에 포함")
                 else:
-                    print(f"⚠️ [DEBUG]   → 예상치 못한 태그 타입: {type(email_tags)}")
+                    print(f"❌ [DEBUG]   → 매칭되지 않음")
                         
             print(f"🏷️ [DEBUG] '{tag_name}' 태그 필터링: {len(filtered_emails)}개 이메일 발견")
             self.list_title.setText(f"🏷️ {tag_name} 태그")

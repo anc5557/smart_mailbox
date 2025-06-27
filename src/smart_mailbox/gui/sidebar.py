@@ -67,7 +67,6 @@ class Sidebar(QWidget):
         # 부제목
         subtitle = QLabel("AI 이메일 분석기")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #666; font-size: 10px;")
         header_layout.addWidget(subtitle)
         
         layout.addWidget(header_widget)
@@ -113,14 +112,7 @@ class Sidebar(QWidget):
         # 모든 태그 선택 해제
         self.tags_tree.clearSelection()
         
-        # 홈 버튼 선택 스타일 적용
-        self.home_button.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                font-weight: bold;
-            }
-        """)
+        # 홈 버튼 선택 (스타일은 기본 테마 사용)
         
         self.home_selected.emit()
     
@@ -129,9 +121,6 @@ class Sidebar(QWidget):
         if item:
             tag_name = item.data(0, Qt.ItemDataRole.UserRole)
             if tag_name:
-                # 홈 버튼 선택 해제 (시각적 효과)
-                self.home_button.setStyleSheet("")
-                
                 # 동일한 태그를 다시 클릭한 경우 처리
                 if self.current_selected_tag == tag_name:
                     print(f"🏷️ [DEBUG] 동일한 태그 재클릭: {tag_name}")
@@ -191,5 +180,4 @@ class Sidebar(QWidget):
     def clear_selection(self):
         """모든 선택을 해제 (검색 모드일 때 사용)"""
         self.current_selected_tag = None
-        self.tags_tree.clearSelection()
-        self.home_button.setStyleSheet("")  # 홈 버튼 선택 해제 
+        self.tags_tree.clearSelection() 

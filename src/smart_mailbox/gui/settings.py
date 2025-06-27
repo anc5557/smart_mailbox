@@ -435,12 +435,14 @@ class GeneralSettingsTab(QWidget):
         
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        
         app_group = QGroupBox("애플리케이션 설정")
         app_layout = QFormLayout(app_group)
         
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Auto", "Light", "Dark"])
         self.theme_combo.setToolTip("애플리케이션의 테마를 설정합니다. Auto는 시스템 테마에 따라 자동 전환됩니다.")
+        self.theme_combo.setMinimumWidth(120)
         app_layout.addRow("테마:", self.theme_combo)
 
         self.auto_start_check = QCheckBox("시스템 시작 시 자동 실행")
