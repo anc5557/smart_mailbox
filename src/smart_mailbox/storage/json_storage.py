@@ -113,7 +113,7 @@ class JSONStorageManager:
     
     def __init__(self, data_dir: Optional[str] = None):
         if data_dir is None:
-            data_dir_path = Path.home() / "SmartMailbox"
+            data_dir_path = Path.home() / ".smart_mailbox"
         else:
             data_dir_path = Path(data_dir)
         

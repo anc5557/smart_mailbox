@@ -10,7 +10,7 @@ class FileManager:
     애플리케이션의 데이터 파일 및 디렉토리 구조를 관리하는 클래스.
     사용자 홈 디렉토리 하위에 앱 전용 폴더를 생성하고 관리합니다.
     """
-    def __init__(self, app_name: str = "SmartMailbox"):
+    def __init__(self, app_name: str = ".smart_mailbox"):
         self.app_name = app_name
         self.base_dir = Path.home() / self.app_name
         self.config_path = self.base_dir / "config.json"
