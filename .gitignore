@@ -8,3 +8,51 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Build and release files
+releases/
+*.dmg
+*.exe
+*.msi
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+
+# PyInstaller
+*.spec
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Version and build info
+version_info.txt
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# OS generated files
+.directory
+.fuse_hidden*
+.nfs*
