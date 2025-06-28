@@ -12,8 +12,8 @@ class TagConfig:
         self.config_path = config_path
         self.config_file = self.config_path / "tags.json"
         
-        # 개선된 기본 태그 설정
-        self.default_tags = {
+        # 개선된 기본 태그 설정 (초기화용)
+        self.initial_default_tags = {
             "중요": {
                 "color": "#FF0000", 
                 "prompt": "긴급, 중요, ASAP, 마감, 결재, 승인 등 중요한 키워드가 있는 메일"
@@ -38,8 +38,8 @@ class TagConfig:
         설정 파일에서 태그를 로드하고, 없으면 기본값으로 생성합니다.
         """
         if not self.config_file.exists():
-            self._save_tags(self.default_tags)
-            return self.default_tags
+            self._save_tags(self.initial_default_tags)
+            return self.initial_default_tags
         
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
@@ -50,23 +50,37 @@ class TagConfig:
                     # JSONStorageManager가 생성한 배열 형태의 태그 데이터
                     # 기본 태그로 시작하여 기존 설정 파일을 새 형태로 변환
                     logger.info("기존 JSON 스토리지 태그 형태를 TagConfig 형태로 변환합니다.")
-                    self._save_tags(self.default_tags)
-                    return self.default_tags
+                    self._save_tags(self.initial_default_tags)
+                    return self.initial_default_tags
                 elif isinstance(stored_data, dict):
                     # 기존 TagConfig 형태의 딕셔너리 데이터
-                    updated_tags = self.default_tags.copy()
-                    updated_tags.update(stored_data)
+                    # 기본 태그가 없는 경우에만 추가 (처음 시작할 때만)
+                    if not stored_data:
+                        return self.initial_default_tags
+                    
+                    # 기본 태그 중 누락된 것이 있다면 추가
+                    updated_tags = stored_data.copy()
+                    added_any = False
+                    for tag_name, tag_data in self.initial_default_tags.items():
+                        if tag_name not in updated_tags:
+                            updated_tags[tag_name] = tag_data
+                            added_any = True
+                            logger.info(f"누락된 기본 태그 '{tag_name}' 추가됨")
+                    
+                    if added_any:
+                        self._save_tags(updated_tags)
+                    
                     return updated_tags
                 else:
                     # 알 수 없는 형태
                     logger.warning("알 수 없는 태그 파일 형태입니다. 기본 설정으로 복원합니다.")
-                    self._save_tags(self.default_tags)
-                    return self.default_tags
+                    self._save_tags(self.initial_default_tags)
+                    return self.initial_default_tags
                     
         except (json.JSONDecodeError, IOError) as e:
             logger.error(f"태그 설정 파일을 읽는 중 오류 발생: {e}. 기본 설정으로 복원합니다.")
-            self._save_tags(self.default_tags)
-            return self.default_tags
+            self._save_tags(self.initial_default_tags)
+            return self.initial_default_tags
 
     def _save_tags(self, tags: Dict[str, Any]):
         """
@@ -78,7 +92,7 @@ class TagConfig:
 
     def get_all_tags(self) -> Dict[str, Any]:
         """
-        모든 태그(기본 + 커스텀)를 반환합니다.
+        모든 태그를 반환합니다.
         """
         return self.tags
 
@@ -87,83 +101,68 @@ class TagConfig:
         모든 태그의 이름 목록을 반환합니다.
         """
         return list(self.tags.keys())
-    
 
-
-    def add_custom_tag(self, name: str, color: str, prompt: str) -> bool:
+    def add_tag(self, name: str, color: str = '#007ACC', prompt: str = '') -> bool:
         """
-        새로운 커스텀 태그를 추가합니다.
+        새로운 태그를 추가합니다.
         """
         if name in self.tags:
             logger.error(f"오류: '{name}' 태그가 이미 존재합니다.")
             return False
         
-        self.tags[name] = {"color": color, "prompt": prompt, "is_custom": True}
+        self.tags[name] = {"color": color, "prompt": prompt}
         self._save_tags(self.tags)
+        logger.info(f"새 태그 '{name}' 추가됨")
         return True
+
+    def update_tag(self, name: str, color: Optional[str] = None, prompt: Optional[str] = None) -> bool:
+        """
+        태그의 속성을 업데이트합니다. 이제 모든 태그(기본 태그 포함) 수정 가능합니다.
+        """
+        if name not in self.tags:
+            logger.error(f"오류: '{name}' 태그가 존재하지 않습니다.")
+            return False
+            
+        if color is not None:
+            self.tags[name]["color"] = color
+        if prompt is not None:
+            self.tags[name]["prompt"] = prompt
+            
+        self._save_tags(self.tags)
+        logger.info(f"태그 '{name}' 업데이트됨")
+        return True
+
+    def delete_tag(self, name: str) -> bool:
+        """
+        태그를 삭제합니다. 이제 모든 태그(기본 태그 포함) 삭제 가능합니다.
+        """
+        if name not in self.tags:
+            logger.error(f"오류: '{name}' 태그가 존재하지 않습니다.")
+            return False
+            
+        del self.tags[name]
+        self._save_tags(self.tags)
+        logger.info(f"태그 '{name}' 삭제됨")
+        return True
+
+    def reset_to_defaults(self) -> bool:
+        """
+        모든 태그를 초기 기본 태그로 재설정합니다.
+        """
+        self.tags = self.initial_default_tags.copy()
+        self._save_tags(self.tags)
+        logger.info("태그가 기본 설정으로 재설정됨")
+        return True
+
+    # 호환성을 위한 레거시 메서드들 (deprecated)
+    def add_custom_tag(self, name: str, color: str, prompt: str) -> bool:
+        """호환성을 위한 메서드. add_tag를 사용하세요."""
+        return self.add_tag(name, color, prompt)
 
     def update_custom_tag(self, name: str, new_color: str, new_prompt: str) -> bool:
-        """
-        커스텀 태그의 속성을 업데이트합니다.
-        """
-        if name not in self.tags or not self.tags[name].get("is_custom", False):
-            logger.error(f"오류: '{name}'는 수정할 수 없는 기본 태그이거나 존재하지 않는 태그입니다.")
-            return False
-            
-        if new_color:
-            self.tags[name]["color"] = new_color
-        if new_prompt:
-            self.tags[name]["prompt"] = new_prompt
-            
-        self._save_tags(self.tags)
-        return True
+        """호환성을 위한 메서드. update_tag를 사용하세요."""
+        return self.update_tag(name, new_color, new_prompt)
 
     def delete_custom_tag(self, name: str) -> bool:
-        """
-        커스텀 태그를 삭제합니다.
-        """
-        if name not in self.tags or not self.tags[name].get("is_custom", False):
-            logger.error(f"오류: '{name}'는 삭제할 수 없는 기본 태그이거나 존재하지 않는 태그입니다.")
-            return False
-            
-        del self.tags[name]
-        self._save_tags(self.tags)
-        return True
-
-    def add_tag(self, name: str, english_name: Optional[str] = None,
-                color: str = '#007ACC', description: str = '') -> bool:
-        """새 태그 추가"""
-        if name in self.tags:
-            logger.error(f"'{name}' 태그가 이미 존재합니다.")
-            return False
-        
-        self.tags[name] = {
-            'english_name': english_name or name.lower().replace(' ', '_'),
-            'color': color,
-            'description': description
-        }
-        self._save_tags(self.tags)
-        return True
-    
-    def update_tag(self, name: str, **kwargs) -> bool:
-        """태그 정보 수정"""
-        if name not in self.tags or name in self.default_tags:
-            logger.error(f"'{name}'는 수정할 수 없는 기본 태그이거나 존재하지 않는 태그입니다.")
-            return False
-        
-        for key, value in kwargs.items():
-            if key in ['english_name', 'color', 'description']:
-                self.tags[name][key] = value
-        
-        self._save_tags(self.tags)
-        return True
-    
-    def delete_tag(self, name: str) -> bool:
-        """태그 삭제"""
-        if name not in self.tags or name in self.default_tags:
-            logger.error(f"'{name}'는 삭제할 수 없는 기본 태그이거나 존재하지 않는 태그입니다.")
-            return False
-        
-        del self.tags[name]
-        self._save_tags(self.tags)
-        return True
+        """호환성을 위한 메서드. delete_tag를 사용하세요."""
+        return self.delete_tag(name)

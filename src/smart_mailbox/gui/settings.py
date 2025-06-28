@@ -290,9 +290,12 @@ class TagSettingsTab(QWidget):
         self.delete_tag_button = QPushButton("태그 삭제")
         self.delete_tag_button.clicked.connect(self.delete_selected_tag)
         self.delete_tag_button.setEnabled(False)
+        self.reset_button = QPushButton("기본 태그로 복원")
+        self.reset_button.clicked.connect(self.reset_to_defaults)
         
         button_layout.addWidget(self.add_tag_button)
         button_layout.addWidget(self.delete_tag_button)
+        button_layout.addWidget(self.reset_button)
         left_layout.addLayout(button_layout)
 
         splitter.addWidget(left_widget)
@@ -323,7 +326,6 @@ class TagSettingsTab(QWidget):
         self.tag_details_group.setVisible(True)
         tag_name = current.text()
         tag_details = self.tag_config.get_all_tags()[tag_name]
-        is_custom = tag_details.get("is_custom", False)
 
         self.tag_name_edit.setText(tag_name)
         
@@ -332,10 +334,10 @@ class TagSettingsTab(QWidget):
         
         self.prompt_edit.setText(tag_details.get('prompt', ''))
         
-        # 기본 태그는 수정 불가
-        self.color_button.setEnabled(is_custom)
-        self.prompt_edit.setReadOnly(not is_custom)
-        self.delete_tag_button.setEnabled(is_custom)
+        # 모든 태그가 수정/삭제 가능
+        self.color_button.setEnabled(True)
+        self.prompt_edit.setReadOnly(False)
+        self.delete_tag_button.setEnabled(True)
 
     def choose_color(self):
         style = self.color_button.styleSheet()
@@ -352,7 +354,7 @@ class TagSettingsTab(QWidget):
     def add_new_tag(self):
         # 간단한 다이얼로그로 새 태그 정보 입력 받기
         dialog = QDialog(self)
-        dialog.setWindowTitle("새 커스텀 태그 추가")
+        dialog.setWindowTitle("새 태그 추가")
         layout = QFormLayout(dialog)
 
         name_edit = QLineEdit()
@@ -370,7 +372,7 @@ class TagSettingsTab(QWidget):
             name = name_edit.text().strip()
             prompt = prompt_edit.toPlainText().strip()
             if name and prompt:
-                if self.tag_config.add_custom_tag(name, "#C0C0C0", prompt):
+                if self.tag_config.add_tag(name, "#C0C0C0", prompt):
                     self.load_tags()
                     QMessageBox.information(self, "성공", f"'{name}' 태그를 추가했습니다.")
                 else:
@@ -388,12 +390,12 @@ class TagSettingsTab(QWidget):
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 
         if reply == QMessageBox.StandardButton.Yes:
-            if self.tag_config.delete_custom_tag(tag_name):
+            if self.tag_config.delete_tag(tag_name):
                 self.load_tags()
                 self.tag_details_group.setVisible(False)
                 QMessageBox.information(self, "성공", f"'{tag_name}' 태그를 삭제했습니다.")
             else:
-                QMessageBox.warning(self, "오류", "기본 태그는 삭제할 수 없습니다.")
+                QMessageBox.warning(self, "오류", "태그 삭제에 실패했습니다.")
 
     def apply_changes(self):
         """태그 변경사항 저장"""
@@ -405,7 +407,7 @@ class TagSettingsTab(QWidget):
         tag_name = current_item.text()
         tag_details = self.tag_config.get_all_tags().get(tag_name)
 
-        if tag_details and tag_details.get("is_custom", False):
+        if tag_details:
             # Get color from button stylesheet
             style = self.color_button.styleSheet()
             new_color = tag_details.get('color') # default to old color
@@ -415,7 +417,7 @@ class TagSettingsTab(QWidget):
 
             new_prompt = self.prompt_edit.toPlainText()
             
-            self.tag_config.update_custom_tag(tag_name, new_color, new_prompt)
+            self.tag_config.update_tag(tag_name, new_color, new_prompt)
         
         # Reload all tags to reflect changes
         self.load_tags()
@@ -424,6 +426,23 @@ class TagSettingsTab(QWidget):
         """설정 값 반환"""
         # 태그 설정은 TagConfig에서 직접 관리되므로 빈 딕셔너리 반환
         return {}
+
+    def reset_to_defaults(self):
+        """모든 태그를 기본 설정으로 복원합니다."""
+        reply = QMessageBox.question(
+            self, 
+            "기본 태그로 복원", 
+            "모든 태그를 기본 설정으로 복원하시겠습니까?\n현재 설정된 모든 태그가 삭제되고 기본 태그만 남게 됩니다.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.tag_config.reset_to_defaults():
+                self.load_tags()
+                self.tag_details_group.setVisible(False)
+                QMessageBox.information(self, "성공", "태그가 기본 설정으로 복원되었습니다.")
+            else:
+                QMessageBox.warning(self, "오류", "기본 설정 복원에 실패했습니다.")
 
 
 class GeneralSettingsTab(QWidget):
