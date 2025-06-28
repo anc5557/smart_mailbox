@@ -22,11 +22,11 @@ class VersionManager:
             self._current_version = __version__
         except ImportError:
             # 패키지가 설치되지 않은 경우 기본값 사용
-            self._current_version = "0.2.0"
+            self._current_version = "0.3.0"
     
     def get_current_version(self) -> str:
         """현재 애플리케이션 버전을 반환합니다."""
-        return self._current_version or "0.2.0"
+        return self._current_version or "0.3.0"
     
     def get_version_info(self) -> Dict[str, Any]:
         """상세한 버전 정보를 반환합니다."""
