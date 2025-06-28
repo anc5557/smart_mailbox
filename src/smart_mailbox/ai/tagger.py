@@ -14,17 +14,24 @@ class Tagger:
         self.ollama_client = ollama_client
         self.storage_manager = storage_manager
         
-        # 단순화된 분류 프롬프트 템플릿
-        self.simple_classification_template = """메일 분류:
+        # 분류 프롬프트 템플릿
+        self.simple_classification_template = """이메일을 정확히 분류해주세요.
 
+이메일 정보:
 제목: {subject}
 발신자: {sender}
 본문: {body}
 
-태그들:
+분류 규칙:
 {tag_descriptions}
 
-적용할 태그를 JSON 배열로 반환하세요:"""
+중요한 지침:
+1. 가장 적합한 태그 1-2개만 선택하세요 (최대 2개)
+2. 스팸과 광고는 명백한 경우에만 적용
+3. 업무 메일은 스팸이나 광고로 분류하지 마세요
+4. 확실하지 않으면 태그를 적용하지 마세요
+
+JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
 
     def set_storage_manager(self, storage_manager):
         """스토리지 매니저를 설정합니다."""
@@ -91,8 +98,8 @@ class Tagger:
                 }
             )
             
-            # 태그 설명 문자열 생성
-            tag_descriptions = "\n".join([f"- {tag}" for tag in tag_prompts.keys()])
+            # 태그 설명 문자열 생성 (프롬프트 포함)
+            tag_descriptions = "\n".join([f"- {tag}: {prompt}" for tag, prompt in tag_prompts.items()])
             
             # 분석할 텍스트 구성 (제목과 본문만 사용)
             email_content = f"제목: {subject}\n본문: {body_text[:1000]}"  # 본문은 처음 1000자만
@@ -141,9 +148,9 @@ class Tagger:
             try:
                 parsed = json.loads(response)
                 if isinstance(parsed, list):
-                    # 유효한 태그만 필터링
+                    # 유효한 태그만 필터링하고 최대 2개로 제한
                     valid_tags = [tag for tag in parsed if tag in available_tags]
-                    return valid_tags
+                    return valid_tags[:2]  # 최대 2개만 반환
                 elif isinstance(parsed, dict):
                     # 딕셔너리 형태인 경우 tags 키에서 추출 또는 값들에서 추출
                     logger.debug(f"딕셔너리 응답 처리: {parsed}")
@@ -151,7 +158,7 @@ class Tagger:
                         tags = parsed['tags']
                         if isinstance(tags, list):
                             valid_tags = [tag for tag in tags if tag in available_tags]
-                            return valid_tags
+                            return valid_tags[:2]  # 최대 2개만 반환
                     # tags 키가 없으면 값들 중에서 태그 찾기
                     found_tags = []
                     for value in parsed.values():
@@ -161,7 +168,7 @@ class Tagger:
                             for item in value:
                                 if isinstance(item, str) and item in available_tags:
                                     found_tags.append(item)
-                    return found_tags
+                    return found_tags[:2]  # 최대 2개만 반환
                 else:
                     logger.warning(f"예상한 형태가 아님: {type(parsed)}")
                     return []
@@ -179,7 +186,7 @@ class Tagger:
         for tag in available_tags:
             if tag in text:
                 found_tags.append(tag)
-        return found_tags
+        return found_tags[:2]  # 최대 2개만 반환
 
     # 호환성을 위한 레거시 메서드들
     def analyze_email_detailed(self, email_data: Dict) -> Dict[str, Any]:
