@@ -30,7 +30,7 @@ jobs:
         python build_windows.py
     
     - name: Upload Windows artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: smart-mailbox-windows
         path: releases/*Windows*.exe
@@ -57,7 +57,7 @@ jobs:
         python build.py
     
     - name: Upload macOS artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: smart-mailbox-macos
         path: releases/*macOS*.dmg
@@ -69,13 +69,13 @@ jobs:
     
     steps:
     - name: Download Windows artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: smart-mailbox-windows
         path: ./releases/
     
     - name: Download macOS artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: smart-mailbox-macos
         path: ./releases/
