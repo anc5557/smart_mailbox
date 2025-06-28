@@ -16,6 +16,7 @@ import qdarktheme
 from .sidebar import Sidebar
 from .email_view import EmailView
 from .settings import SettingsDialog
+from .update_dialog import AboutDialog
 from ..storage import JSONStorageManager
 from ..storage.file_manager import FileManager
 from ..config import TagConfig, AIConfig
@@ -46,7 +47,7 @@ class EmailProcessingWorker(QThread):
     def run(self):
         """백그라운드에서 이메일 처리 실행"""
         try:
-            from ..email.parser import EmailParser
+            from ..email_parser.parser import EmailParser
             
             parser = EmailParser()
             processed_emails = []
@@ -431,6 +432,12 @@ class MainWindow(QMainWindow):
         preferences_action = QAction("환경설정(&P)", self)
         preferences_action.triggered.connect(self.show_settings)
         settings_menu.addAction(preferences_action)
+        
+        # 도움말 메뉴 추가
+        help_menu = menubar.addMenu("도움말(&H)")
+        about_action = QAction("Smart Mailbox 정보(&A)", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
 
     def setup_toolbar(self):
         """툴바 설정"""
@@ -761,6 +768,15 @@ class MainWindow(QMainWindow):
         
         dialog.load_settings(current_settings)
         dialog.exec()
+    
+    def show_about_dialog(self):
+        """버전 정보 및 업데이트 확인 다이얼로그 표시"""
+        try:
+            about_dialog = AboutDialog(self)
+            about_dialog.exec()
+        except Exception as e:
+            logger.error(f"정보 다이얼로그 표시 실패: {e}")
+            QMessageBox.critical(self, "오류", f"정보 다이얼로그 표시 실패:\n{e}")
 
     def save_settings(self, new_settings):
         """설정 저장"""

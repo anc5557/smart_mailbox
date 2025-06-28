@@ -2051,7 +2051,7 @@ wheels = [
 
 [[package]]
 name = "smart-mailbox"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "chardet" },
@@ -2061,6 +2061,7 @@ dependencies = [
     { name = "langchain-community" },
     { name = "langgraph" },
     { name = "ollama" },
+    { name = "packaging" },
     { name = "pathvalidate" },
     { name = "pydantic" },
     { name = "pyinstaller" },
@@ -2109,6 +2110,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.0.30" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "ollama", specifier = ">=0.5.1" },
+    { name = "packaging", specifier = ">=23.0" },
     { name = "pathvalidate", specifier = ">=3.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
