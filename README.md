@@ -254,12 +254,4 @@ uv run ruff check src/
 
 이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 `LICENSE` 파일을 참조하세요.
 
-## 📞 지원 및 연락
-
-- 이슈 리포트: [GitHub Issues](../../issues)
-- 기능 요청: [GitHub Discussions](../../discussions)
-- 이메일: your-email@example.com
-
 ---
-
-⭐ 이 프로젝트가 유용하다면 스타를 눌러주세요!
