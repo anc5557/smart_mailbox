@@ -9,7 +9,7 @@ from pathlib import Path
 
 # 프로젝트 정보
 APP_NAME = "Smart Mailbox"
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.2.0"
 APP_AUTHOR = "SmartMailbox Team"
 APP_DESCRIPTION = "AI Smart Mailbox - 이메일 자동 태깅 및 답장 생성 도구"
 
