@@ -19,7 +19,15 @@ class AIConfig:
             "max_tokens": 1024,
             "disable_thinking": True,  # thinking 비활성화 기본값
             "server_url": "http://localhost:11434",
-            "timeout": 60
+            "timeout": 60,
+            "max_retries": 3,
+            # 텍스트 처리 관련 설정
+            "email_body_max_length": 2000,  # 이메일 본문 최대 길이
+            "reply_body_max_length": 1500,  # 답장 생성용 본문 최대 길이
+            "tagger_body_max_length": 1000,  # 태깅용 본문 최대 길이
+            "max_tags_per_email": 2,  # 이메일당 최대 태그 수
+            "subject_preview_length": 50,  # 제목 미리보기 길이
+            "content_preview_length": 200,  # 내용 미리보기 길이
         }
         self.settings = self._load_settings()
 

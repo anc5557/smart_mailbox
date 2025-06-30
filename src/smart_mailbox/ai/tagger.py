@@ -80,7 +80,11 @@ JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
                 logger.warning("사용 가능한 태그 프롬프트가 없습니다.")
                 return []
             
-            logger.info(f"AI 태깅 시작: {email_data.get('subject', '')[:50]}...")
+            # AI 설정에서 텍스트 길이 제한 가져오기
+            subject_preview_length = self.ollama_client.ai_config.get_setting("subject_preview_length", 50)
+            tagger_body_max_length = self.ollama_client.ai_config.get_setting("tagger_body_max_length", 1000)
+            
+            logger.info(f"AI 태깅 시작: {email_data.get('subject', '')[:subject_preview_length]}...")
             
             # 이메일 내용 추출
             subject = email_data.get('subject', '')
@@ -92,7 +96,7 @@ JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
                 "EMAIL_TAGGING",
                 email_data.get('id', 'N/A'),
                 {
-                    'subject': subject[:50],
+                    'subject': subject[:subject_preview_length],
                     'model': self.ollama_client.ai_config.get_model(),
                     'tags_to_check': list(tag_prompts.keys())
                 }
@@ -102,13 +106,13 @@ JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
             tag_descriptions = "\n".join([f"- {tag}: {prompt}" for tag, prompt in tag_prompts.items()])
             
             # 분석할 텍스트 구성 (제목과 본문만 사용)
-            email_content = f"제목: {subject}\n본문: {body_text[:1000]}"  # 본문은 처음 1000자만
+            email_content = f"제목: {subject}\n본문: {body_text[:tagger_body_max_length]}"
             
             # 단순한 프롬프트로 한 번에 모든 태그 분류
             prompt = self.simple_classification_template.format(
                 subject=subject,
                 sender=sender,
-                body=body_text[:1000] if body_text else '',
+                body=body_text[:tagger_body_max_length] if body_text else '',
                 tag_descriptions=tag_descriptions
             )
             
@@ -148,17 +152,19 @@ JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
             try:
                 parsed = json.loads(response)
                 if isinstance(parsed, list):
-                    # 유효한 태그만 필터링하고 최대 2개로 제한
+                    # 유효한 태그만 필터링하고 설정된 최대 개수로 제한
+                    max_tags = self.ollama_client.ai_config.get_setting("max_tags_per_email", 2)
                     valid_tags = [tag for tag in parsed if tag in available_tags]
-                    return valid_tags[:2]  # 최대 2개만 반환
+                    return valid_tags[:max_tags]
                 elif isinstance(parsed, dict):
                     # 딕셔너리 형태인 경우 tags 키에서 추출 또는 값들에서 추출
                     logger.debug(f"딕셔너리 응답 처리: {parsed}")
                     if 'tags' in parsed:
                         tags = parsed['tags']
                         if isinstance(tags, list):
+                            max_tags = self.ollama_client.ai_config.get_setting("max_tags_per_email", 2)
                             valid_tags = [tag for tag in tags if tag in available_tags]
-                            return valid_tags[:2]  # 최대 2개만 반환
+                            return valid_tags[:max_tags]
                     # tags 키가 없으면 값들 중에서 태그 찾기
                     found_tags = []
                     for value in parsed.values():
@@ -168,7 +174,8 @@ JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
                             for item in value:
                                 if isinstance(item, str) and item in available_tags:
                                     found_tags.append(item)
-                    return found_tags[:2]  # 최대 2개만 반환
+                    max_tags = self.ollama_client.ai_config.get_setting("max_tags_per_email", 2)
+                    return found_tags[:max_tags]
                 else:
                     logger.warning(f"예상한 형태가 아님: {type(parsed)}")
                     return []
@@ -186,7 +193,8 @@ JSON 배열로 반환하세요 (예: ["중요", "회신필요"]):"""
         for tag in available_tags:
             if tag in text:
                 found_tags.append(tag)
-        return found_tags[:2]  # 최대 2개만 반환
+        max_tags = self.ollama_client.ai_config.get_setting("max_tags_per_email", 2)
+        return found_tags[:max_tags]
 
     # 호환성을 위한 레거시 메서드들
     def analyze_email_detailed(self, email_data: Dict) -> Dict[str, Any]:

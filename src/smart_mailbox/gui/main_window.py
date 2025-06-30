@@ -20,8 +20,9 @@ from .update_dialog import AboutDialog
 from ..storage import JSONStorageManager
 from ..storage.file_manager import FileManager
 from ..config import TagConfig, AIConfig
-from ..ai import OllamaClient, OllamaConfig, Tagger, ReplyGenerator
+from ..ai import OllamaClient, Tagger, ReplyGenerator
 from ..config.logger import logger, user_action_logger
+from ..utils.version_manager import VersionManager
 
 
 class EmailProcessingWorker(QThread):
@@ -318,13 +319,8 @@ class MainWindow(QMainWindow):
             
             self.load_settings() # 설정 먼저 로드
             
-            # Ollama 설정 적용
-            ollama_settings = self.settings.value("ollama", {}, type=dict)
-            ollama_config = OllamaConfig(
-                base_url=ollama_settings.get("server_url", "http://localhost:11434"),
-                timeout=ollama_settings.get("timeout", 60)
-            )
-            self.ollama_client = OllamaClient(ollama_config, self.ai_config) 
+            # Ollama 클라이언트 초기화
+            self.ollama_client = OllamaClient(self.ai_config) 
             self.tagger = Tagger(self.ollama_client, self.storage_manager)
             self.reply_generator = ReplyGenerator(self.ollama_client)
         except Exception as e:
@@ -333,7 +329,10 @@ class MainWindow(QMainWindow):
 
     def setup_ui(self):
         """메인 UI 구성"""
-        self.setWindowTitle("🤖 AI Smart Mailbox")
+        # 버전 정보를 포함한 제목 설정
+        version_manager = VersionManager()
+        version = version_manager.get_current_version()
+        self.setWindowTitle(f"🤖 AI Smart Mailbox v{version}")
         self.setGeometry(100, 100, 1200, 800)
         
         # 테마는 main.py에서 관리됨
@@ -541,9 +540,14 @@ class MainWindow(QMainWindow):
             
             # 디버깅: 로드된 이메일들의 ai_processed 상태 확인
             logger.debug(f"데이터베이스에서 {len(emails_data)}개 이메일 로드됨")
+            # AI 설정에서 미리보기 길이 가져오기 (기본값 사용)
+            subject_preview_length = 30
+            if hasattr(self, 'ai_config'):
+                subject_preview_length = self.ai_config.get_setting("subject_preview_length", 50)
+            
             for i, email in enumerate(emails_data[:3]):  # 처음 3개만 출력
                 logger.debug(f"   {i+1}. ID: {email.get('id', 'N/A')[:8]}...")
-                logger.debug(f"      제목: {email.get('subject', 'N/A')[:30]}...")
+                logger.debug(f"      제목: {email.get('subject', 'N/A')[:subject_preview_length]}...")
                 logger.debug(f"      ai_processed: {email.get('ai_processed', 'N/A')}")
                 logger.debug(f"      tags: {email.get('tags', [])}")
             
@@ -830,25 +834,18 @@ class MainWindow(QMainWindow):
 
     def load_settings(self):
         """QSettings에서 설정을 로드합니다."""
-        # 기본값 설정
+        # 기본값 설정 (AIConfig의 기본값 사용)
         if not self.settings.contains("general/theme"):
             self.settings.setValue("general/theme", "auto")
-        if not self.settings.contains("ollama/server_url"):
-            self.settings.setValue("ollama/server_url", "http://localhost:11434")
-        if not self.settings.contains("ollama/timeout"):
-            self.settings.setValue("ollama/timeout", 60)
+        # Ollama 설정은 이제 AIConfig에서 관리하므로 QSettings 기본값 제거
 
     def reload_components_on_settings_change(self):
         """설정 변경에 따라 영향을 받는 컴포넌트를 다시 로드합니다."""
         # Ollama 클라이언트 재설정
         try:
             self.ollama_client.close() # 기존 클라이언트 종료
-            ollama_settings = self.settings.value("ollama", {}, type=dict)
-            ollama_config = OllamaConfig(
-                base_url=ollama_settings.get("server_url", "http://localhost:11434"),
-                timeout=ollama_settings.get("timeout", 60)
-            )
-            self.ollama_client = OllamaClient(ollama_config, self.ai_config)
+            # 새로운 OllamaClient 방식 사용 (설정은 ai_config에서 자동으로 가져옴)
+            self.ollama_client = OllamaClient(self.ai_config)
             self.tagger = Tagger(self.ollama_client, self.storage_manager)
             # ReplyGenerator 인스턴스 재생성 (set_client 대신)
             self.reply_generator = ReplyGenerator(self.ollama_client)
@@ -875,7 +872,10 @@ class MainWindow(QMainWindow):
             else:
                 self.statusBar().showMessage("⚠️ Ollama 연결 실패 - 설정에서 확인하세요", 10000)
         except Exception as e:
-            self.statusBar().showMessage(f"❌ Ollama 연결 오류: {str(e)[:50]}...", 10000)
+            # AI 설정에서 미리보기 길이 가져오기
+            subject_preview_length = self.ai_config.get_setting("subject_preview_length", 50)
+            error_preview = str(e)[:subject_preview_length]
+            self.statusBar().showMessage(f"❌ Ollama 연결 오류: {error_preview}...", 10000)
     
     def delete_emails(self, email_ids: List[int]):
         """선택된 이메일들을 삭제합니다."""
@@ -945,7 +945,10 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "오류", "이메일 ID를 찾을 수 없습니다.")
                 return
             
-            self.statusBar().showMessage(f"재분석 중... '{email_data.get('subject', 'N/A')[:30]}...'")
+            # AI 설정에서 미리보기 길이 가져오기
+            subject_preview_length = self.ai_config.get_setting("subject_preview_length", 50)
+            truncated_subject = email_data.get('subject', 'N/A')[:subject_preview_length]
+            self.statusBar().showMessage(f"재분석 중... '{truncated_subject}...'")
             
             # AI 태깅 수행
             tagging_result = self.tagger.analyze_email_for_tags(email_data)
@@ -1076,10 +1079,13 @@ class MainWindow(QMainWindow):
         
         # 알림 메시지 (선택적)
         logger.debug(f"💬 답장 생성됨 - 제목: {subject}")
+        # AI 설정에서 미리보기 길이 가져오기
+        content_preview_length = self.ai_config.get_setting("content_preview_length", 200)
+        
         logger.debug(f"📝 답장 내용 미리보기: {reply_content[:100]}...")
         
         # 사용자에게 답장 생성 완료 알림
-        reply_preview = reply_content[:200] + "..." if len(reply_content) > 200 else reply_content
+        reply_preview = reply_content[:content_preview_length] + "..." if len(reply_content) > content_preview_length else reply_content
         QMessageBox.information(
             self,
             "답장 생성 완료",

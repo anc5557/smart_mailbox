@@ -4,7 +4,6 @@ Ollama LLM 클라이언트 - ollama 라이브러리 사용
 
 import logging
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
 from pathlib import Path
 
 import ollama
@@ -15,32 +14,28 @@ from ..config.ai import AIConfig
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class OllamaConfig:
-    """Ollama 설정"""
-    base_url: str = "http://localhost:11434"
-    timeout: int = 60
-    max_retries: int = 3
-    disable_thinking: bool = True  # thinking 비활성화 (ollama의 think=False 적용)
-
-
 class OllamaClient:
     """
     Ollama LLM 클라이언트 - ollama 라이브러리 사용
     
     thinking 모드 제어:
-    - config.disable_thinking=True (기본값): ollama의 think=False로 thinking 비활성화
-    - config.disable_thinking=False: ollama의 think=True로 thinking 활성화
+    - AIConfig의 disable_thinking=True (기본값): ollama의 think=False로 thinking 비활성화
+    - AIConfig의 disable_thinking=False: ollama의 think=True로 thinking 활성화
     """
     
-    def __init__(self, config: Optional[OllamaConfig] = None, ai_config: Optional[AIConfig] = None):
-        self.config = config or OllamaConfig()
+    def __init__(self, ai_config: Optional[AIConfig] = None):
         self.ai_config = ai_config or AIConfig(Path.home() / ".smart_mailbox")
+        
+        # AIConfig에서 설정값 가져오기
+        self.base_url = self.ai_config.get_setting("server_url", "http://localhost:11434")
+        self.timeout = self.ai_config.get_setting("timeout", 60)
+        self.max_retries = self.ai_config.get_setting("max_retries", 3)
+        self.disable_thinking = self.ai_config.is_thinking_disabled()
         
         # ollama 클라이언트 초기화
         self.client = Client(
-            host=self.config.base_url,
-            timeout=self.config.timeout
+            host=self.base_url,
+            timeout=self.timeout
         )
 
     def is_available(self) -> bool:
@@ -104,7 +99,7 @@ class OllamaClient:
         return selected_model
 
     def generate_completion(self, prompt: str, model: Optional[str] = None, 
-                          temperature: float = 0.0, max_tokens: Optional[int] = None) -> Optional[str]:
+                          temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> Optional[str]:
         """텍스트 생성 완료"""
         
         # 최적의 모델 선택
@@ -112,21 +107,23 @@ class OllamaClient:
         if not selected_model:
             return None
         
+        # AIConfig에서 설정값 가져오기
+        if temperature is None:
+            temperature = self.ai_config.get_setting("temperature", 0.0)
+        if max_tokens is None:
+            max_tokens = self.ai_config.get_setting("max_tokens", 256)
+        
         try:
             # ollama.generate 사용
             options = {
                 "temperature": temperature,
                 "top_p": 0.1,  # 낮은 top_p로 더 결정적인 응답
                 "repeat_penalty": 1.0,  # 반복 방지
+                "num_predict": max_tokens
             }
             
-            if max_tokens:
-                options["num_predict"] = max_tokens
-            else:
-                options["num_predict"] = 256  # 짧은 응답을 위한 기본값
-            
-            # thinking 강제 비활성화
-            think_enabled = False
+            # thinking 설정 적용
+            think_enabled = not self.disable_thinking
             
             response = self.client.generate(
                 model=selected_model,
@@ -159,13 +156,19 @@ class OllamaClient:
             return None
     
     def chat_completion(self, messages: List[Dict[str, str]], model: Optional[str] = None,
-                       temperature: float = 0.1, max_tokens: Optional[int] = None) -> Optional[str]:
+                       temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> Optional[str]:
         """채팅 완료 (대화형)"""
         
         # 최적의 모델 선택
         selected_model = self._get_best_available_model(model)
         if not selected_model:
             return None
+        
+        # AIConfig에서 설정값 가져오기
+        if temperature is None:
+            temperature = self.ai_config.get_setting("temperature", 0.1)
+        if max_tokens is None:
+            max_tokens = self.ai_config.get_setting("max_tokens", 1024)
         
         try:
             # ollama.chat 사용
@@ -176,8 +179,8 @@ class OllamaClient:
             if max_tokens:
                 options["num_predict"] = max_tokens
             
-            # thinking 비활성화 설정 적용
-            think_enabled = not self.config.disable_thinking
+            # thinking 설정 적용
+            think_enabled = not self.disable_thinking
             
             response = self.client.chat(
                 model=selected_model,
@@ -318,9 +321,11 @@ class EmailTagger:
             body = body.strip()
         
         if body:
+            # AI 설정에서 이메일 본문 최대 길이 가져오기
+            email_body_max_length = self.ollama.ai_config.get_setting("email_body_max_length", 2000)
             # 본문이 너무 길면 일부만 사용
-            if len(body) > 2000:
-                body = body[:2000] + "..."
+            if len(body) > email_body_max_length:
+                body = body[:email_body_max_length] + "..."
             parts.append(f"본문:\n{body}")
         
         return "\n\n".join(parts)
@@ -412,8 +417,10 @@ class ReplyGenerator:
         
         body = email_data.get("body_text", "")
         if body:
-            if len(body) > 1500:
-                body = body[:1500] + "..."
+            # AI 설정에서 답장용 본문 최대 길이 가져오기
+            reply_body_max_length = self.ollama.ai_config.get_setting("reply_body_max_length", 1500)
+            if len(body) > reply_body_max_length:
+                body = body[:reply_body_max_length] + "..."
             parts.append(f"본문:\n{body}")
         
         return "\n\n".join(parts)

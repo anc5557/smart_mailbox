@@ -7,11 +7,34 @@ import os
 import sys
 from pathlib import Path
 
-# 프로젝트 정보
-APP_NAME = "Smart Mailbox"
-APP_VERSION = "0.2.0"
+# 프로젝트 정보 (패키지에서 가져오기)
+def get_app_info():
+    """패키지에서 앱 정보를 가져옵니다."""
+    try:
+        # 패키지 경로 추가
+        src_path = Path(__file__).parent / "src"
+        if str(src_path) not in sys.path:
+            sys.path.insert(0, str(src_path))
+        
+        from smart_mailbox import __version__
+        return {
+            "name": "Smart Mailbox",
+            "version": __version__,
+            "description": "AI Smart Mailbox - 이메일 자동 태깅 및 답장 생성 도구"
+        }
+    except Exception:
+        return {
+            "name": "Smart Mailbox",
+            "version": "0.0.0",
+            "description": "AI Smart Mailbox - 이메일 자동 태깅 및 답장 생성 도구"
+        }
+
+_app_info = get_app_info()
+
+APP_NAME = _app_info["name"]
+APP_VERSION = _app_info["version"]
 APP_AUTHOR = "SmartMailbox Team"
-APP_DESCRIPTION = "AI Smart Mailbox - 이메일 자동 태깅 및 답장 생성 도구"
+APP_DESCRIPTION = _app_info["description"]
 
 # 경로 설정
 PROJECT_ROOT = Path(__file__).parent

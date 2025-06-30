@@ -16,7 +16,7 @@ AI Smart Mailbox는 `.eml` 이메일 파일을 드래그 앤 드롭으로 업로
 
 ## 🛠️ 기술 스택
 
-- **언어**: Python 3.13
+- **언어**: Python 3.11
 - **패키지 관리**: uv
 - **AI 프레임워크**: LangChain, LangGraph
 - **LLM**: Ollama (로컬)
@@ -35,7 +35,7 @@ AI Smart Mailbox는 `.eml` 이메일 파일을 드래그 앤 드롭으로 업로
 
 ### 개발 환경 설정
 
-1. **Python 3.13 설치** (필수)
+1. **Python 3.11 설치** (필수)
    
 2. **uv 설치**
    ```bash

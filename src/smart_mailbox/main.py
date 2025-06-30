@@ -14,6 +14,7 @@ from PyQt6.QtCore import Qt
 import qdarktheme
 from smart_mailbox.gui.main_window import MainWindow
 from smart_mailbox.config.logger import logger
+from smart_mailbox.utils.version_manager import VersionManager
 
 def apply_theme(app: QApplication, theme: str = "auto") -> None:
     """
@@ -45,12 +46,18 @@ def apply_theme(app: QApplication, theme: str = "auto") -> None:
 
 def main():
     """메인 함수"""
-    logger.info("AI Smart Mailbox 시작 중...")
-    logger.info(f"Python 버전: {sys.version}")
+    # 버전 정보 표시
+    version_manager = VersionManager()
+    version_info = version_manager.get_version_info()
+    
+    logger.info(f"AI Smart Mailbox v{version_info['version']} 시작 중...")
+    logger.info(f"Python {version_info['python_version']}")
+    logger.info(f"Platform: {version_info['platform']} ({version_info['architecture']})")
     logger.info(f"작업 디렉토리: {os.getcwd()}")
     
     app = QApplication(sys.argv)
     app.setApplicationName("AI Smart Mailbox")
+    app.setApplicationVersion(version_info['version'])
     app.setOrganizationName("SmartMailbox")
     
     try:

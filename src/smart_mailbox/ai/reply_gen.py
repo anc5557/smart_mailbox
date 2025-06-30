@@ -27,11 +27,14 @@ class ReplyGenerator:
             sender = email_data.get('sender', '')
             body_text = email_data.get('body_text', '') or ''
             
+            # AI 설정에서 답장용 본문 최대 길이 가져오기
+            reply_body_max_length = self.ollama_client.ai_config.get_setting("reply_body_max_length", 1500)
+            
             # 답장 생성을 위한 이메일 내용 구성
             email_content = f"""제목: {subject}
 발신자: {sender}
 본문:
-{body_text[:1500]}"""  # 본문 길이 제한
+{body_text[:reply_body_max_length]}"""
             
             prompt = f"""
 다음 이메일에 대한 전문적이고 간결한 답장 초안을 작성해주세요. 

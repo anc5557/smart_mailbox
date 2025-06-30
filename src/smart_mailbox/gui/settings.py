@@ -14,14 +14,15 @@ from PyQt6.QtGui import QFont, QColor, QPalette
 
 from ..config.tags import TagConfig
 from ..config.ai import AIConfig
-from ..ai.ollama_client import OllamaClient, OllamaConfig
+from ..ai.ollama_client import OllamaClient
 
 
 class OllamaSettingsTab(QWidget):
     """Ollama 설정 탭"""
     
-    def __init__(self):
+    def __init__(self, ai_config: AIConfig):
         super().__init__()
+        self.ai_config = ai_config
         self.setup_ui()
         
     def setup_ui(self):
@@ -36,7 +37,7 @@ class OllamaSettingsTab(QWidget):
         url_label = QLabel("서버 URL:")
         url_label.setMinimumWidth(120)
         url_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.server_url_edit = QLineEdit("http://localhost:11434")
+        self.server_url_edit = QLineEdit()
         self.server_url_edit.setMinimumWidth(300)
         url_layout.addWidget(url_label)
         url_layout.addWidget(self.server_url_edit)
@@ -63,7 +64,6 @@ class OllamaSettingsTab(QWidget):
         timeout_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(10, 300)
-        self.timeout_spin.setValue(60)
         self.timeout_spin.setSuffix("초")
         self.timeout_spin.setMinimumWidth(100)
         timeout_layout.addWidget(timeout_label)
@@ -99,7 +99,6 @@ class OllamaSettingsTab(QWidget):
         temp_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.temperature_spin = QSpinBox()
         self.temperature_spin.setRange(0, 100)
-        self.temperature_spin.setValue(70)
         self.temperature_spin.setMinimumWidth(100)
         temp_layout.addWidget(temp_label)
         temp_layout.addWidget(self.temperature_spin)
@@ -113,7 +112,6 @@ class OllamaSettingsTab(QWidget):
         tokens_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.max_tokens_spin = QSpinBox()
         self.max_tokens_spin.setRange(100, 4096)
-        self.max_tokens_spin.setValue(1024)
         self.max_tokens_spin.setMinimumWidth(100)
         tokens_layout.addWidget(tokens_label)
         tokens_layout.addWidget(self.max_tokens_spin)
@@ -127,7 +125,6 @@ class OllamaSettingsTab(QWidget):
         thinking_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.disable_thinking_checkbox = QCheckBox()
         self.disable_thinking_checkbox.setToolTip("AI가 응답하기 전에 'thinking' 과정을 표시하지 않도록 합니다.")
-        self.disable_thinking_checkbox.setChecked(True)
         thinking_layout.addWidget(thinking_label)
         thinking_layout.addWidget(self.disable_thinking_checkbox)
         thinking_layout.addStretch()
@@ -136,16 +133,30 @@ class OllamaSettingsTab(QWidget):
         layout.addWidget(ai_group)
         layout.addStretch()
         
+        # AI 설정에서 기본값 로드
+        self._load_default_values()
+        
+    def _load_default_values(self):
+        """AIConfig에서 기본값들을 로드합니다."""
+        self.server_url_edit.setText(self.ai_config.get_setting("server_url", "http://localhost:11434"))
+        self.timeout_spin.setValue(self.ai_config.get_setting("timeout", 60))
+        temperature = self.ai_config.get_setting("temperature", 0.7)
+        self.temperature_spin.setValue(int(temperature * 100))
+        self.max_tokens_spin.setValue(self.ai_config.get_setting("max_tokens", 1024))
+        self.disable_thinking_checkbox.setChecked(self.ai_config.get_setting("disable_thinking", True))
+        
     def test_connection(self):
         """Ollama 서버 연결 테스트 및 모델 목록 가져오기"""
         self.connection_status_label.setText("확인 중...")
         self.repaint()
 
-        config = OllamaConfig(
-            base_url=self.server_url_edit.text(),
-            timeout=self.timeout_spin.value()
-        )
-        client = OllamaClient(config)
+        # 새로운 OllamaClient 방식 사용
+        temp_ai_config = AIConfig(self.ai_config.config_file.parent)
+        temp_ai_config.update_settings({
+            "server_url": self.server_url_edit.text(),
+            "timeout": self.timeout_spin.value()
+        })
+        client = OllamaClient(temp_ai_config)
         
         try:
             is_connected, models = client.check_connection()
@@ -172,11 +183,13 @@ class OllamaSettingsTab(QWidget):
     
     def auto_test_connection(self):
         """설정 로드 시 자동으로 연결 테스트 (백그라운드에서 조용히 수행)"""
-        config = OllamaConfig(
-            base_url=self.server_url_edit.text(),
-            timeout=self.timeout_spin.value()
-        )
-        client = OllamaClient(config)
+        # 새로운 OllamaClient 방식 사용
+        temp_ai_config = AIConfig(self.ai_config.config_file.parent)
+        temp_ai_config.update_settings({
+            "server_url": self.server_url_edit.text(),
+            "timeout": self.timeout_spin.value()
+        })
+        client = OllamaClient(temp_ai_config)
         
         try:
             is_connected, models = client.check_connection()
@@ -540,7 +553,7 @@ class SettingsDialog(QDialog):
         self.general_tab = GeneralSettingsTab()
         tab_widget.addTab(self.general_tab, "일반")
         
-        self.ollama_tab = OllamaSettingsTab()
+        self.ollama_tab = OllamaSettingsTab(self.ai_config)
         tab_widget.addTab(self.ollama_tab, "Ollama")
         
         self.tag_tab = TagSettingsTab(self.tag_config)
